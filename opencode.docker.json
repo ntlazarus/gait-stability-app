@@ -1,0 +1,46 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "codebase-memory": {
+      "type": "local",
+      "command": [
+        "bash",
+        "-lc",
+        "exec ${CODEBASE_MEMORY_MCP_SERVER_COMMAND:-codebase-memory-mcp}"
+      ],
+      "enabled": true,
+      "timeout": 60000
+    }
+  },
+  "plugin": [
+    "./.opencode/plugins/codebase-memory-hooks.ts"
+  ],
+  "instructions": [
+    "AGENTS.md",
+    "docs/architecture/README.md"
+  ],
+  "watcher": {
+    "ignore": [
+      "node_modules/**",
+      ".git/**",
+      ".opencode-container/**",
+      ".codebase-memory/**",
+      "dist/**",
+      "build/**",
+      ".venv/**",
+      "venv/**",
+      "__pycache__/**",
+      ".pytest_cache/**",
+      ".ruff_cache/**",
+      ".mypy_cache/**",
+      "docs/architecture/rendered/**"
+    ]
+  },
+  "default_agent": "orchestrator",
+  "skills": {
+    "paths": [
+      ".opencode/skills"
+    ]
+  },
+  "permission": "allow"
+}
