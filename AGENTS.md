@@ -80,3 +80,15 @@ Do not claim completion without fresh evidence from:
 - Review of the final Git diff
 
 Report remaining assumptions, unvalidated behavior, and known limitations.
+## Current project state documentation
+
+`docs/PROJECT_STATE.md` is the canonical quick-reference description of the
+currently implemented application.
+
+After a substantial feature or workflow change, refresh it with:
+
+`/snapshot-app`
+
+The snapshot must describe implemented behavior, executable commands, inputs,
+outputs, testing instructions, and known limitations. Planned functionality
+must not be represented as current functionality.

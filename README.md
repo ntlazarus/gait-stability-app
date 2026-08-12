@@ -64,6 +64,37 @@ All work must preserve the distinctions among:
 These categories must not be conflated, and clinical validity must not be
 claimed without supporting validation evidence.
 
+## Video Inspection
+
+Install the package and inspect a local MP4 or MOV:
+
+```bash
+python -m pip install -e '.[dev]'
+python scripts/inspect_video.py path/to/walk.mp4 --output-root outputs
+```
+
+The command writes `outputs/<video_stem>/video_metadata.json` and deterministic
+JPEG samples under `sample_frames/`. Nominal timestamps and duration come from
+container metadata. Compressed-video random seeking depends on the OpenCV
+capture backend. The inspector checks OpenCV's reported frame positions when
+available, but this does not verify exact compressed-frame identity or actual
+timestamps. Orientation metadata is recorded when the backend reports a finite
+conventional value. A separate `auto_orientation_status` records whether the
+backend accepted, rejected, did not support, or errored on the request to disable
+OpenCV auto-orientation. Rejected or unsupported requests do not establish that
+decoded frames are unrotated. The inspector performs no additional rotation.
+
+Artifacts are staged completely before output replacement. Reported rename
+failures trigger rollback of the prior result, but replacing an existing output
+requires two same-filesystem renames. Interruption between them can leave the
+prior result in a hidden `.backup-*` sibling requiring manual recovery. This
+stage only records video properties; it performs no pose, gait, biomechanical,
+or clinical assessment.
+
+The package runtime remains Python 3.11 or newer. Static checks currently target
+Python 3.13 so mypy can parse the NumPy stubs installed with OpenCV 5 in the
+development environment.
+
 ## Detailed Rules
 
 LLMs should read `AGENTS.md` first, then consult `.opencode/agents/`,
