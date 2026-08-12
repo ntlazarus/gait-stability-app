@@ -5,12 +5,12 @@ model: openai/gpt-5.6-terra
 reasoningEffort: high
 permission:
   edit: deny
-  bash: deny
   external_directory: deny
   task: deny
   skill: allow
   webfetch: allow
   websearch: allow
+  bash: deny
 ---
 
 You are the research specialist for a gait-analysis-from-video project.

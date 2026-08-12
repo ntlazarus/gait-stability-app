@@ -66,7 +66,7 @@ HOST_MOUNT_ROOT="$MAIN_REPO_ROOT"
 # OpenCode stores provider credentials and application state under
 # ~/.local/share/opencode inside the container. Always use the main checkout's
 # persistent directory so authentication is shared across worktrees.
-SHARED_OPENCODE_DATA="$MAIN_REPO_ROOT/.opencode-container/auth"
+SHARED_OPENCODE_DATA="${OPENCODE_DATA_DIR:-$HOME/.opencode-container/auth}"
 mkdir -p "$SHARED_OPENCODE_DATA"
 
 if [[ ! -f "$HOST_WORKDIR/opencode.docker.json" ]]; then

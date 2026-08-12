@@ -7,14 +7,22 @@ permission:
   external_directory: deny
   task: deny
   skill: allow
-  webfetch: ask
-  websearch: ask
+  webfetch: deny
+  websearch: deny
   bash:
     "*": allow
-    "git commit*": ask
     "git push*": deny
+    "git commit*": deny
     "git reset --hard*": deny
     "git clean*": deny
+    "git restore*": deny
+    "git checkout --*": deny
+    "git rebase*": deny
+    "git rm*": deny
+    "git branch -D*": deny
+    "gh *": deny
+    "sudo *": deny
+    "*.opencode-container*": deny
 ---
 
 You are the Python implementation specialist for this project.

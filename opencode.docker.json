@@ -42,5 +42,42 @@
       ".opencode/skills"
     ]
   },
-  "permission": "allow"
+  "permission": {
+    "*": "allow",
+    "external_directory": "deny",
+    "doom_loop": "deny",
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow",
+      ".opencode-container/**": "deny"
+    },
+    "edit": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow",
+      ".opencode-container/**": "deny",
+      ".git/**": "deny"
+    },
+    "bash": {
+      "*": "allow",
+
+      "git push*": "deny",
+      "git commit*": "deny",
+      "git reset --hard*": "deny",
+      "git clean*": "deny",
+      "git restore*": "deny",
+      "git checkout --*": "deny",
+      "git rebase*": "deny",
+      "git rm*": "deny",
+      "git branch -D*": "deny",
+
+      "gh *": "deny",
+      "sudo *": "deny",
+
+      "*.opencode-container*": "deny"
+    }
+  }
 }

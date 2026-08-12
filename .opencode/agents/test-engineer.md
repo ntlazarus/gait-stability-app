@@ -11,10 +11,18 @@ permission:
   websearch: deny
   bash:
     "*": allow
-    "git commit*": ask
     "git push*": deny
+    "git commit*": deny
     "git reset --hard*": deny
     "git clean*": deny
+    "git restore*": deny
+    "git checkout --*": deny
+    "git rebase*": deny
+    "git rm*": deny
+    "git branch -D*": deny
+    "gh *": deny
+    "sudo *": deny
+    "*.opencode-container*": deny
 ---
 
 You are the test engineering specialist.
