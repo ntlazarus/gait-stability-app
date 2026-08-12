@@ -27,9 +27,12 @@ class FakeCapture:
         frame_count: float = 101.0,
         orientation: float = 0.0,
         decode: bool = True,
+        decode_fail_indices: set[int] | None = None,
     ) -> None:
         self.opened = opened
         self.decode = decode
+        self.decode_fail_indices = decode_fail_indices or set()
+        self.decode_attempts: list[int] = []
         self.released = False
         self.position = 0.0
         self.properties = {
@@ -62,7 +65,9 @@ class FakeCapture:
         return True
 
     def read(self) -> tuple[bool, FakeImage | None]:
-        if not self.decode:
+        frame_index = int(self.position)
+        self.decode_attempts.append(frame_index)
+        if not self.decode or frame_index in self.decode_fail_indices:
             return False, None
         self.position += 1
         return True, FakeImage()
@@ -155,17 +160,28 @@ def test_inspect_video_writes_complete_metadata_and_artifact_layout(
     assert metadata.orientation_status.startswith("zero:")
     assert metadata.auto_orientation_status.startswith("disabled:")
     assert metadata.readability_status == "opened"
-    assert metadata.decode_status == "all selected frames decoded"
+    assert metadata.decode_status == "all selected frames decoded exactly"
     assert metadata.seek_verification_method.startswith(
-        "OpenCV CAP_PROP_POS_FRAMES checked"
+        "Each exact or fallback attempt re-seeks on the same capture"
     )
-    assert "backend dependent" in metadata.seek_verification_method
+    assert "failed decode may leave some backends unrecoverable" in (
+        metadata.seek_verification_method
+    )
+    assert "backend-report dependent" in metadata.seek_verification_method
     assert metadata.sampling_method == video_ingestion.SAMPLING_METHOD
     assert metadata.artifact_directory == destination.resolve()
     assert metadata.metadata_path == metadata_path.resolve()
-    assert tuple(record.frame_index for record in metadata.sampled_frames) == (
-        expected_indices
+    assert (
+        tuple(record.requested_frame_index for record in metadata.sampled_frames)
+        == expected_indices
     )
+    assert (
+        tuple(record.frame_index for record in metadata.sampled_frames)
+        == expected_indices
+    )
+    assert tuple(
+        record.requested_nominal_timestamp_seconds for record in metadata.sampled_frames
+    ) == pytest.approx((0.0, 1.0, 2.0, 3.0, 4.0))
     assert tuple(
         record.nominal_timestamp_seconds for record in metadata.sampled_frames
     ) == pytest.approx((0.0, 1.0, 2.0, 3.0, 4.0))
@@ -173,7 +189,12 @@ def test_inspect_video_writes_complete_metadata_and_artifact_layout(
         tuple(record.relative_image_path for record in metadata.sampled_frames)
         == expected_relative_paths
     )
-    assert {record.decode_status for record in metadata.sampled_frames} == {"decoded"}
+    assert {record.fallback_distance_frames for record in metadata.sampled_frames} == {
+        0
+    }
+    assert {record.decode_status for record in metadata.sampled_frames} == {
+        "decoded_exact"
+    }
 
     assert destination.is_dir()
     assert metadata_path.is_file()
@@ -490,7 +511,55 @@ def test_selected_frame_opencv_errors_are_translated_with_frame_context(
     assert isinstance(raised.value.__cause__, cv2.error)
 
 
-def test_decode_failure_leaves_no_new_destination(
+def test_seek_and_decode_rejects_mismatched_reported_position_before_decode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capture = FakeCapture()
+    original_get = capture.get
+
+    def get_with_mismatched_position(property_id: int) -> float:
+        if property_id == cv2.CAP_PROP_POS_FRAMES:
+            return 16.0
+        return original_get(property_id)
+
+    monkeypatch.setattr(capture, "get", get_with_mismatched_position)
+
+    with pytest.raises(
+        video_ingestion.SelectedFrameDecodeError,
+        match=r"Seek to frame 17 reported position 16",
+    ):
+        video_ingestion._seek_and_decode(capture, 17)
+
+    assert capture.decode_attempts == []
+
+
+def test_seek_and_decode_rejects_reported_zero_after_decoding_frame_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capture = FakeCapture()
+    original_get = capture.get
+    position_queries = 0
+
+    def get_with_mismatched_position_after(property_id: int) -> float:
+        nonlocal position_queries
+        if property_id == cv2.CAP_PROP_POS_FRAMES:
+            position_queries += 1
+            if position_queries == 2:
+                return 0.0
+        return original_get(property_id)
+
+    monkeypatch.setattr(capture, "get", get_with_mismatched_position_after)
+
+    with pytest.raises(
+        video_ingestion.SelectedFrameDecodeError,
+        match=r"Decoded frame 0, but OpenCV reported position 0 afterward",
+    ):
+        video_ingestion._seek_and_decode(capture, 0)
+
+    assert capture.decode_attempts == [0]
+
+
+def test_all_backward_decode_attempts_fail_with_explicit_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = make_source(tmp_path)
@@ -499,10 +568,106 @@ def test_decode_failure_leaves_no_new_destination(
     install_file_writing_imwrite(monkeypatch)
     output_root = tmp_path / "output"
 
-    with pytest.raises(video_ingestion.SelectedFrameDecodeError):
+    with pytest.raises(
+        video_ingestion.SelectedFrameDecodeError,
+        match=r"requested frame 0; attempted inclusive frame range 0-0",
+    ) as raised:
         video_ingestion.inspect_video(source, output_root)
 
+    assert isinstance(raised.value.__cause__, video_ingestion.SelectedFrameDecodeError)
     assert_no_destination_or_staging(output_root, source.stem)
+
+
+def test_terminal_frame_uses_truthful_bounded_backward_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = make_source(tmp_path)
+    capture = FakeCapture(decode_fail_indices={100})
+    install_capture(monkeypatch, capture)
+    written_paths = install_file_writing_imwrite(monkeypatch)
+
+    metadata = video_ingestion.inspect_video(source, tmp_path / "output")
+
+    terminal = metadata.sampled_frames[-1]
+    assert capture.decode_attempts[-2:] == [100, 99]
+    assert terminal.requested_frame_index == 100
+    assert terminal.frame_index == 99
+    assert terminal.requested_nominal_timestamp_seconds == pytest.approx(4.0)
+    assert terminal.nominal_timestamp_seconds == pytest.approx(3.96)
+    assert terminal.fallback_distance_frames == 1
+    assert terminal.relative_image_path == "sample_frames/frame_099.jpg"
+    assert terminal.decode_status == "decoded_after_backward_fallback"
+    assert (
+        metadata.decode_status == "bounded backward fallback used for selected frames"
+    )
+    assert written_paths[-1].name == "frame_099.jpg"
+    persisted = json.loads(metadata.metadata_path.read_text(encoding="utf-8"))
+    assert persisted["sampled_frames"][-1] == {
+        "requested_frame_index": 100,
+        "frame_index": 99,
+        "requested_nominal_timestamp_seconds": 4.0,
+        "nominal_timestamp_seconds": 3.96,
+        "fallback_distance_frames": 1,
+        "relative_image_path": "sample_frames/frame_099.jpg",
+        "decode_status": "decoded_after_backward_fallback",
+    }
+
+
+def test_terminal_frame_failure_reports_all_eleven_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = make_source(tmp_path)
+    capture = FakeCapture(decode_fail_indices=set(range(90, 101)))
+    install_capture(monkeypatch, capture)
+    install_file_writing_imwrite(monkeypatch)
+    output_root = tmp_path / "output"
+
+    with pytest.raises(
+        video_ingestion.SelectedFrameDecodeError,
+        match=r"requested frame 100; attempted inclusive frame range 90-100",
+    ) as raised:
+        video_ingestion.inspect_video(source, output_root)
+
+    assert capture.decode_attempts[-11:] == list(range(100, 89, -1))
+    assert isinstance(raised.value.__cause__, video_ingestion.SelectedFrameDecodeError)
+    assert "frame 90" in str(raised.value.__cause__)
+    assert_no_destination_or_staging(output_root, source.stem)
+
+
+def test_backward_fallback_reuses_an_already_written_actual_frame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = make_source(tmp_path)
+    capture = FakeCapture(
+        frame_count=12.0,
+        decode_fail_indices={9, 10, 11},
+    )
+    install_capture(monkeypatch, capture)
+    written_paths = install_file_writing_imwrite(monkeypatch)
+
+    metadata = video_ingestion.inspect_video(source, tmp_path / "output")
+
+    assert tuple(
+        record.requested_frame_index for record in metadata.sampled_frames
+    ) == (
+        0,
+        3,
+        6,
+        8,
+        11,
+    )
+    earlier = metadata.sampled_frames[-2]
+    terminal = metadata.sampled_frames[-1]
+    assert terminal.frame_index == earlier.frame_index == 8
+    assert terminal.fallback_distance_frames == 3
+    assert terminal.relative_image_path == earlier.relative_image_path
+    assert terminal.decode_status == "decoded_after_backward_fallback_reused_sample"
+    assert [path.name for path in written_paths].count("frame_08.jpg") == 1
+    assert len(written_paths) == 4
+    persisted = json.loads(metadata.metadata_path.read_text(encoding="utf-8"))
+    assert len(persisted["sampled_frames"]) == 5
+    assert persisted["sampled_frames"][-1]["requested_frame_index"] == 11
+    assert persisted["sampled_frames"][-1]["frame_index"] == 8
 
 
 def test_write_failure_preserves_existing_destination(
@@ -618,7 +783,7 @@ def test_inspect_generated_mp4_with_real_opencv_io(tmp_path: Path) -> None:
         8,
     )
     assert metadata.seek_verification_method.startswith(
-        "OpenCV CAP_PROP_POS_FRAMES checked"
+        "Each exact or fallback attempt re-seeks on the same capture"
     )
     assert metadata.metadata_path.is_file()
     assert all(
@@ -628,10 +793,15 @@ def test_inspect_generated_mp4_with_real_opencv_io(tmp_path: Path) -> None:
     persisted = json.loads(metadata.metadata_path.read_text(encoding="utf-8"))
     assert persisted["sampled_frames"] == [
         {
+            "requested_frame_index": record.requested_frame_index,
             "frame_index": record.frame_index,
+            "requested_nominal_timestamp_seconds": (
+                record.requested_nominal_timestamp_seconds
+            ),
             "nominal_timestamp_seconds": record.nominal_timestamp_seconds,
+            "fallback_distance_frames": record.fallback_distance_frames,
             "relative_image_path": record.relative_image_path,
-            "decode_status": "decoded",
+            "decode_status": "decoded_exact",
         }
         for record in metadata.sampled_frames
     ]

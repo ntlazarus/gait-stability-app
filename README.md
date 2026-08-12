@@ -75,14 +75,20 @@ python scripts/inspect_video.py path/to/walk.mp4 --output-root outputs
 
 The command writes `outputs/<video_stem>/video_metadata.json` and deterministic
 JPEG samples under `sample_frames/`. Nominal timestamps and duration come from
-container metadata. Compressed-video random seeking depends on the OpenCV
-capture backend. The inspector checks OpenCV's reported frame positions when
-available, but this does not verify exact compressed-frame identity or actual
-timestamps. Orientation metadata is recorded when the backend reports a finite
-conventional value. A separate `auto_orientation_status` records whether the
-backend accepted, rejected, did not support, or errored on the request to disable
-OpenCV auto-orientation. Rejected or unsupported requests do not establish that
-decoded frames are unrotated. The inspector performs no additional rotation.
+container metadata. If a requested representative frame cannot be decoded, the
+inspector tries at most the 10 preceding source indices and records requested and
+actual indices, timestamps, fallback distance, and decode status separately.
+Images are named by actual source index, and fallback collisions reuse the
+existing image without dropping the requested target's metadata record.
+Each fallback attempt re-seeks on the same capture; a failed decode may leave
+some backends unrecoverable. The inspector checks finite nonnegative OpenCV frame
+positions, but frame identity remains backend-report dependent when position
+reporting is unavailable, and actual timestamps are not verified. Orientation
+metadata is recorded when the backend reports a finite conventional value. A
+separate `auto_orientation_status` records whether the backend accepted,
+rejected, did not support, or errored on the request to disable OpenCV
+auto-orientation. Rejected or unsupported requests do not establish that decoded
+frames are unrotated. The inspector performs no additional rotation.
 
 Artifacts are staged completely before output replacement. Reported rename
 failures trigger rollback of the prior result, but replacing an existing output

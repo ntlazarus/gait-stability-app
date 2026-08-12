@@ -18,9 +18,12 @@ import cv2
 
 SUPPORTED_EXTENSIONS = frozenset({".mp4", ".mov"})
 SAMPLE_FRACTIONS = (0.0, 0.25, 0.5, 0.75, 1.0)
+MAX_PRECEDING_FALLBACK_FRAMES = 10
 SAMPLING_METHOD = (
     "round(fraction * (frame_count - 1)) for fractions "
-    "[0%, 25%, 50%, 75%, 100%], de-duplicated in order"
+    "[0%, 25%, 50%, 75%, 100%], de-duplicated in order; each requested frame "
+    "is attempted exactly, then up to 10 preceding frames are attempted in "
+    "descending order; duplicate actual frames reuse the first written image"
 )
 
 
@@ -76,8 +79,11 @@ class ArtifactPublishError(VideoInspectionError):
 class SampledFrameRecord:
     """Provenance for one representative frame."""
 
+    requested_frame_index: int
     frame_index: int
+    requested_nominal_timestamp_seconds: float
     nominal_timestamp_seconds: float
+    fallback_distance_frames: int
     relative_image_path: str
     decode_status: str
 
@@ -227,7 +233,7 @@ def _seek_and_decode(capture: cv2.VideoCapture, frame_index: int) -> Any:
         ) from exc
     if (
         math.isfinite(reported_before)
-        and (reported_before > 0 or frame_index == 0)
+        and reported_before >= 0
         and not math.isclose(reported_before, frame_index, abs_tol=0.5)
     ):
         raise SelectedFrameDecodeError(
@@ -255,7 +261,7 @@ def _seek_and_decode(capture: cv2.VideoCapture, frame_index: int) -> Any:
     expected_after = frame_index + 1
     if (
         math.isfinite(reported_after)
-        and reported_after > 0
+        and reported_after >= 0
         and not math.isclose(reported_after, expected_after, abs_tol=0.5)
     ):
         raise SelectedFrameDecodeError(
@@ -391,28 +397,68 @@ def inspect_video(
         sample_directory.mkdir()
         padding = max(1, len(str(frame_count - 1)))
         records: list[SampledFrameRecord] = []
-        for frame_index in _sample_indices(frame_count):
-            image = _seek_and_decode(capture, frame_index)
-            filename = f"frame_{frame_index:0{padding}d}.jpg"
-            image_path = sample_directory / filename
-            try:
-                written = cv2.imwrite(str(image_path), image)
-            except cv2.error as exc:
-                raise SelectedFrameWriteError(
-                    f"OpenCV could not write selected frame {frame_index} "
-                    f"to {image_path}"
-                ) from exc
-            if not written:
-                raise SelectedFrameWriteError(
-                    f"OpenCV could not write selected frame {frame_index} "
-                    f"to {image_path}"
+        image_paths_by_frame_index: dict[int, str] = {}
+        used_backward_fallback = False
+        for requested_frame_index in _sample_indices(frame_count):
+            first_attempted_frame_index = max(
+                requested_frame_index - MAX_PRECEDING_FALLBACK_FRAMES, 0
+            )
+            last_failure: SelectedFrameDecodeError | None = None
+            image: Any | None = None
+            frame_index = requested_frame_index
+            for attempted_frame_index in range(
+                requested_frame_index, first_attempted_frame_index - 1, -1
+            ):
+                try:
+                    image = _seek_and_decode(capture, attempted_frame_index)
+                except SelectedFrameDecodeError as exc:
+                    last_failure = exc
+                    continue
+                frame_index = attempted_frame_index
+                break
+            else:
+                raise SelectedFrameDecodeError(
+                    f"Could not decode requested frame {requested_frame_index}; "
+                    f"attempted inclusive frame range "
+                    f"{first_attempted_frame_index}-{requested_frame_index}"
+                ) from last_failure
+
+            fallback_distance = requested_frame_index - frame_index
+            used_backward_fallback |= fallback_distance > 0
+            relative_image_path = image_paths_by_frame_index.get(frame_index)
+            if relative_image_path is None:
+                filename = f"frame_{frame_index:0{padding}d}.jpg"
+                relative_image_path = (Path("sample_frames") / filename).as_posix()
+                image_path = sample_directory / filename
+                try:
+                    written = cv2.imwrite(str(image_path), image)
+                except cv2.error as exc:
+                    raise SelectedFrameWriteError(
+                        f"OpenCV could not write decoded frame {frame_index} "
+                        f"for requested frame {requested_frame_index} to {image_path}"
+                    ) from exc
+                if not written:
+                    raise SelectedFrameWriteError(
+                        f"OpenCV could not write decoded frame {frame_index} "
+                        f"for requested frame {requested_frame_index} to {image_path}"
+                    )
+                image_paths_by_frame_index[frame_index] = relative_image_path
+                decode_status = (
+                    "decoded_exact"
+                    if fallback_distance == 0
+                    else "decoded_after_backward_fallback"
                 )
+            else:
+                decode_status = "decoded_after_backward_fallback_reused_sample"
             records.append(
                 SampledFrameRecord(
+                    requested_frame_index=requested_frame_index,
                     frame_index=frame_index,
+                    requested_nominal_timestamp_seconds=(requested_frame_index / fps),
                     nominal_timestamp_seconds=frame_index / fps,
-                    relative_image_path=(Path("sample_frames") / filename).as_posix(),
-                    decode_status="decoded",
+                    fallback_distance_frames=fallback_distance,
+                    relative_image_path=relative_image_path,
+                    decode_status=decode_status,
                 )
             )
 
@@ -436,11 +482,17 @@ def inspect_video(
             orientation_status=orientation_status,
             auto_orientation_status=auto_orientation_status,
             readability_status="opened",
-            decode_status="all selected frames decoded",
+            decode_status=(
+                "bounded backward fallback used for selected frames"
+                if used_backward_fallback
+                else "all selected frames decoded exactly"
+            ),
             seek_verification_method=(
-                "OpenCV CAP_PROP_POS_FRAMES checked before and after decode when "
-                "meaningful; exact compressed-frame identity remains capture-backend "
-                "dependent"
+                "Each exact or fallback attempt re-seeks on the same capture and "
+                "checks finite nonnegative OpenCV CAP_PROP_POS_FRAMES before and "
+                "after decode; a failed decode may leave some backends unrecoverable, "
+                "and frame identity remains backend-report dependent when position "
+                "reporting is unavailable"
             ),
             sampling_method=SAMPLING_METHOD,
             sampled_frames=tuple(records),
