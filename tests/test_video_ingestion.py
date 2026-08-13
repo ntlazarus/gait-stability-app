@@ -805,3 +805,137 @@ def test_inspect_generated_mp4_with_real_opencv_io(tmp_path: Path) -> None:
         }
         for record in metadata.sampled_frames
     ]
+
+
+def test_load_matching_metadata_reuses_valid_step1_record_without_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = make_source(tmp_path)
+    output_root = tmp_path / "outputs"
+    destination = output_root / source.stem
+    destination.mkdir(parents=True)
+    sample_directory = destination / "sample_frames"
+    sample_directory.mkdir()
+    sample = sample_directory / "frame_0.jpg"
+    sample.write_bytes(b"preserve sample")
+    metadata_path = destination / "video_metadata.json"
+    payload = {
+        "source_path": str(source.resolve()),
+        "filename": source.name,
+        "extension": ".mp4",
+        "container_indicator": "mp4",
+        "file_size_bytes": source.stat().st_size,
+        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "inspected_at_utc": "2026-01-01T00:00:00Z",
+        "width_pixels": 32,
+        "height_pixels": 24,
+        "nominal_fps": 20.0,
+        "nominal_frame_count": 1,
+        "nominal_duration_seconds": 0.05,
+        "opencv_version": "test",
+        "capture_backend": "test",
+        "orientation_degrees": 0,
+        "orientation_status": "zero",
+        "auto_orientation_status": "disabled",
+        "readability_status": "opened",
+        "decode_status": "decoded",
+        "seek_verification_method": "synthetic",
+        "sampling_method": "synthetic",
+        "sampled_frames": [],
+        "artifact_directory": str(destination.resolve()),
+        "metadata_path": str(metadata_path.resolve()),
+    }
+    serialized = json.dumps(payload)
+    metadata_path.write_text(serialized, encoding="utf-8")
+    monkeypatch.setattr(
+        video_ingestion,
+        "inspect_video",
+        lambda *_args: pytest.fail("matching metadata must not trigger re-inspection"),
+    )
+
+    metadata = video_ingestion.load_matching_video_metadata(source, output_root)
+
+    assert metadata is not None
+    assert metadata.source_path == source.resolve()
+    assert metadata.artifact_directory == destination.resolve()
+    assert metadata.sampled_frames == ()
+    assert metadata_path.read_text(encoding="utf-8") == serialized
+    assert sample.read_bytes() == b"preserve sample"
+
+
+def test_load_matching_metadata_reconstructs_tampered_artifact_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = make_source(tmp_path)
+    output_root = tmp_path / "outputs"
+    install_capture(monkeypatch, FakeCapture(frame_count=1.0))
+    install_file_writing_imwrite(monkeypatch)
+    inspected = video_ingestion.inspect_video(source, output_root)
+    payload = json.loads(inspected.metadata_path.read_text(encoding="utf-8"))
+    external = tmp_path / "external"
+    external.mkdir()
+    sentinel = external / "sentinel.txt"
+    sentinel.write_text("must remain untouched", encoding="utf-8")
+    payload["artifact_directory"] = str(external)
+    payload["metadata_path"] = str(external / "redirected.json")
+    inspected.metadata_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = video_ingestion.load_matching_video_metadata(source, output_root)
+
+    assert loaded is not None
+    assert loaded.artifact_directory == (output_root / source.stem).resolve()
+    assert loaded.metadata_path == inspected.metadata_path
+    assert sentinel.read_text(encoding="utf-8") == "must remain untouched"
+    assert not (external / "redirected.json").exists()
+
+
+@pytest.mark.parametrize("metadata_contents", ["not json", "{}"])
+def test_malformed_step1_metadata_is_rejected_without_erasing_artifacts(
+    tmp_path: Path, metadata_contents: str
+) -> None:
+    source = make_source(tmp_path)
+    output_root = tmp_path / "outputs"
+    destination = output_root / source.stem
+    destination.mkdir(parents=True)
+    metadata_path = destination / "video_metadata.json"
+    metadata_path.write_text(metadata_contents, encoding="utf-8")
+    sample = destination / "sample_frames" / "sample.jpg"
+    sample.parent.mkdir()
+    sample.write_bytes(b"preserve")
+
+    assert video_ingestion.load_matching_video_metadata(source, output_root) is None
+    assert metadata_path.read_text(encoding="utf-8") == metadata_contents
+    assert sample.read_bytes() == b"preserve"
+
+
+def test_stale_or_reused_metadata_source_is_rejected_without_mutation(
+    tmp_path: Path,
+) -> None:
+    source = make_source(tmp_path, "walk.mp4")
+    other_source = make_source(tmp_path, "other.mp4")
+    output_root = tmp_path / "outputs"
+    destination = output_root / source.stem
+    destination.mkdir(parents=True)
+    metadata_path = destination / "video_metadata.json"
+    payload = {
+        "source_path": str(other_source.resolve()),
+        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "sampled_frames": [],
+    }
+    serialized = json.dumps(payload)
+    metadata_path.write_text(serialized, encoding="utf-8")
+    preserved = destination / "preserved.txt"
+    preserved.write_text("step 1 output", encoding="utf-8")
+
+    assert video_ingestion.load_matching_video_metadata(source, output_root) is None
+    assert metadata_path.read_text(encoding="utf-8") == serialized
+    assert preserved.read_text(encoding="utf-8") == "step 1 output"
+
+    payload["source_path"] = str(source.resolve())
+    payload["sha256"] = "stale-digest"
+    stale_serialized = json.dumps(payload)
+    metadata_path.write_text(stale_serialized, encoding="utf-8")
+
+    assert video_ingestion.load_matching_video_metadata(source, output_root) is None
+    assert metadata_path.read_text(encoding="utf-8") == stale_serialized
+    assert preserved.read_text(encoding="utf-8") == "step 1 output"

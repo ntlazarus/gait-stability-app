@@ -9,10 +9,17 @@ description = "Research pipeline for video-derived gait stability candidates"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "opencv-python-headless>=4.8",
+    "opencv-contrib-python-headless>=5.0,<5.1",
 ]
 
 [project.optional-dependencies]
+pose = [
+    "absl-py~=2.3",
+    "certifi",
+    "flatbuffers~=25.9",
+    "matplotlib",
+    "sounddevice~=0.5",
+]
 dev = [
     "mypy>=1.10",
     "pytest>=8.0",

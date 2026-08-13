@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import uuid
 import warnings
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -126,6 +127,22 @@ class VideoMetadata:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class DecodedVideoFrame:
+    """One nominal source-frame slot and its decode result.
+
+    ``image_bgr`` is the unmodified OpenCV decode when ``decode_status`` is
+    ``"decoded"``. It is absent for an observable decode failure.
+    """
+
+    frame_index: int
+    nominal_timestamp_seconds: float
+    decode_status: str
+    image_bgr: Any | None
+    decode_detail: str | None = None
+    auto_orientation_status: str | None = None
+
+
 def _validated_positive_integer(value: float, field: str) -> int:
     if (
         not math.isfinite(value)
@@ -156,6 +173,35 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    """Return the SHA-256 of a local file using bounded memory."""
+    return _sha256(path)
+
+
+def load_matching_video_metadata(
+    video_path: str | Path, output_root: Path = Path("outputs")
+) -> VideoMetadata | None:
+    """Load Step 1 metadata only when its source path and hash still match."""
+    source = Path(video_path).expanduser().resolve()
+    artifact_directory = output_root.expanduser().resolve() / source.stem
+    metadata_path = artifact_directory / "video_metadata.json"
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if payload["source_path"] != str(source) or payload["sha256"] != _sha256(
+            source
+        ):
+            return None
+        sampled_frames = tuple(
+            SampledFrameRecord(**record) for record in payload.pop("sampled_frames")
+        )
+        payload["source_path"] = source
+        payload["artifact_directory"] = artifact_directory
+        payload["metadata_path"] = metadata_path
+        return VideoMetadata(sampled_frames=sampled_frames, **payload)
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def _capture_backend(capture: cv2.VideoCapture) -> str:
@@ -198,6 +244,91 @@ def _disable_auto_orientation(capture: cv2.VideoCapture) -> str:
     if not disabled:
         return "rejected: capture backend did not disable auto-orientation"
     return "disabled: capture backend accepted auto-orientation disable request"
+
+
+def decode_video_frames(
+    video_path: str | Path, metadata: VideoMetadata
+) -> Iterator[DecodedVideoFrame]:
+    """Decode all nominal frame slots in order with observable failures.
+
+    Timestamps are nominal ``frame_index / nominal_fps`` values. OpenCV
+    auto-orientation is requested off, consistently with :func:`inspect_video`.
+    A failed read produces a failure record; the decoder then requests a seek to
+    the next nominal index. If that request raises or is rejected, all remaining
+    slots fail without further reads so unknown-position frames cannot be mislabeled.
+    """
+    source = Path(video_path).expanduser().resolve()
+    try:
+        capture = cv2.VideoCapture(str(source))
+    except cv2.error as exc:
+        raise VideoOpenError(f"OpenCV could not open video: {source}") from exc
+    if not capture.isOpened():
+        capture.release()
+        raise VideoOpenError(f"OpenCV could not open video: {source}")
+    auto_orientation_status = _disable_auto_orientation(capture)
+    recovery_failure: str | None = None
+    try:
+        for frame_index in range(metadata.nominal_frame_count):
+            nominal_timestamp = frame_index / metadata.nominal_fps
+            if recovery_failure is not None:
+                yield DecodedVideoFrame(
+                    frame_index=frame_index,
+                    nominal_timestamp_seconds=nominal_timestamp,
+                    decode_status="decode_failure",
+                    image_bgr=None,
+                    decode_detail=(
+                        "Decode not attempted because recovery after a prior failure "
+                        f"was not verified: {recovery_failure}"
+                    ),
+                    auto_orientation_status=auto_orientation_status,
+                )
+                continue
+            detail: str | None
+            try:
+                decoded, image = capture.read()
+            except cv2.error as exc:
+                decoded, image = False, None
+                detail = f"OpenCV raised while decoding: {exc}"
+            else:
+                detail = None
+            if decoded and image is not None and image.size > 0:
+                yield DecodedVideoFrame(
+                    frame_index=frame_index,
+                    nominal_timestamp_seconds=nominal_timestamp,
+                    decode_status="decoded",
+                    image_bgr=image,
+                    auto_orientation_status=auto_orientation_status,
+                )
+                continue
+
+            failure_detail = detail or "OpenCV returned no decoded image"
+            next_frame_index = frame_index + 1
+            if next_frame_index < metadata.nominal_frame_count:
+                try:
+                    seek_succeeded = capture.set(
+                        cv2.CAP_PROP_POS_FRAMES, float(next_frame_index)
+                    )
+                except cv2.error as exc:
+                    recovery_failure = f"OpenCV raised while seeking: {exc}"
+                else:
+                    if not seek_succeeded:
+                        recovery_failure = "capture backend rejected seek request"
+                if recovery_failure is None:
+                    failure_detail += (
+                        f"; recovery seek to frame {next_frame_index} accepted"
+                    )
+                else:
+                    failure_detail += f"; recovery failed: {recovery_failure}"
+            yield DecodedVideoFrame(
+                frame_index=frame_index,
+                nominal_timestamp_seconds=nominal_timestamp,
+                decode_status="decode_failure",
+                image_bgr=None,
+                decode_detail=failure_detail,
+                auto_orientation_status=auto_orientation_status,
+            )
+    finally:
+        capture.release()
 
 
 def _read_metadata_property(

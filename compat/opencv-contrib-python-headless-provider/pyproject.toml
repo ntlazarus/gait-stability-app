@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opencv-contrib-python"
+version = "5.0.0.0"
+description = "Metadata-only headless provider for MediaPipe's OpenCV requirement"
+requires-python = ">=3.11"
+dependencies = ["opencv-contrib-python-headless>=5.0,<5.1"]
+
+[tool.setuptools]
+packages = []

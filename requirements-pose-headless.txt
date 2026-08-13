@@ -1,0 +1,12 @@
+# The local metadata-only provider satisfies MediaPipe 1.0.0's GUI OpenCV
+# distribution name while installing the actual headless OpenCV implementation.
+# The remaining packages are MediaPipe 1.0.0-declared transitive requirements;
+# gait_stability does not import them directly.
+./compat/opencv-contrib-python-headless-provider
+mediapipe==1.0.0
+opencv-contrib-python-headless>=5.0,<5.1
+absl-py~=2.3
+certifi
+flatbuffers~=25.9
+matplotlib
+sounddevice~=0.5

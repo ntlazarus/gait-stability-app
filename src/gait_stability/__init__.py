@@ -1,7 +1,23 @@
-"""Video ingestion components for the gait stability pipeline."""
+"""Video ingestion and backend-independent raw pose components."""
 
+from gait_stability.pose_contracts import (
+    CANONICAL_POSE_CONNECTIONS,
+    CanonicalLandmark,
+    PoseEstimate,
+    PoseEstimator,
+    PoseFrameResult,
+    PoseFrameStatus,
+    normalized_to_pixel,
+)
+from gait_stability.pose_pipeline import (
+    AnnotatedVideoWriteError,
+    PosePipelineError,
+    PoseRunArtifacts,
+    estimate_pose_video,
+)
 from gait_stability.video_ingestion import (
     ArtifactPublishError,
+    DecodedVideoFrame,
     InvalidVideoFPSError,
     InvalidVideoFrameCountError,
     InvalidVideoResolutionError,
@@ -15,14 +31,27 @@ from gait_stability.video_ingestion import (
     VideoNotAFileError,
     VideoNotFoundError,
     VideoOpenError,
+    decode_video_frames,
     inspect_video,
+    load_matching_video_metadata,
+    sha256_file,
 )
 
 __all__ = [
     "ArtifactPublishError",
+    "AnnotatedVideoWriteError",
+    "CANONICAL_POSE_CONNECTIONS",
+    "CanonicalLandmark",
+    "DecodedVideoFrame",
     "InvalidVideoFPSError",
     "InvalidVideoFrameCountError",
     "InvalidVideoResolutionError",
+    "PoseEstimator",
+    "PoseEstimate",
+    "PoseFrameResult",
+    "PoseFrameStatus",
+    "PosePipelineError",
+    "PoseRunArtifacts",
     "SampledFrameRecord",
     "SelectedFrameDecodeError",
     "SelectedFrameWriteError",
@@ -33,5 +62,10 @@ __all__ = [
     "VideoNotAFileError",
     "VideoNotFoundError",
     "VideoOpenError",
+    "decode_video_frames",
+    "estimate_pose_video",
     "inspect_video",
+    "load_matching_video_metadata",
+    "normalized_to_pixel",
+    "sha256_file",
 ]
