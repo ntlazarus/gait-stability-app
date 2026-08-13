@@ -24,8 +24,8 @@ conclusions.
 | --- | --- | --- |
 | `orchestrator` | Primary; plans, delegates, and verifies | `openai/gpt-5.6-sol` |
 | `researcher` | Read-only evidence research | `openai/gpt-5.6-terra` |
-| `python-implementer` | Bounded Python changes | `opencode/north-mini-code-free` |
-| `test-engineer` | Deterministic tests | `opencode/north-mini-code-free` |
+| `python-implementer` | Bounded Python changes | `opencode/nemotron-3-ultra-free` |
+| `test-engineer` | Deterministic tests | `opencode/nemotron-3-ultra-free` |
 | `biomechanics-reviewer` | Read-only scientific and measurement review | `openai/gpt-5.6-sol` |
 | `code-reviewer` | Read-only engineering review | `opencode/nemotron-3-ultra-free` |
 

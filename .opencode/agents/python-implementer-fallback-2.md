@@ -1,7 +1,7 @@
 ---
-description: Implements bounded Python features and refactors for the gait-analysis pipeline.
+description: Fallback #2 for python-implementer; use only when the preferred agent cannot run because its configured model is unavailable, deprecated, rate-limited, or rejected by the provider.
 mode: subagent
-model: opencode/nemotron-3-ultra-free
+model: opencode/mimo-v2.5-free
 permission:
   edit: allow
   external_directory: deny
@@ -71,3 +71,21 @@ mock data, and deliberately non-sensitive fixtures.
 
 If the assigned task requires examination of real research data, stop and
 return the task to the orchestrator.
+
+<!-- FALLBACK_AGENT_NOTE_START -->
+
+## Fallback-agent role
+
+You are fallback #2 for `python-implementer`.
+
+Use the same responsibilities, repository rules, permissions, scientific
+constraints, and data-access restrictions as the primary `python-implementer` agent.
+
+You should be invoked only when a preceding agent in the model fallback chain
+cannot execute because its model or provider is unavailable, deprecated,
+rate-limited, or rejected.
+
+Do not reinterpret a code failure, failing test, permission denial, ambiguous
+requirement, or substantive task error as a reason to switch models.
+
+<!-- FALLBACK_AGENT_NOTE_END -->

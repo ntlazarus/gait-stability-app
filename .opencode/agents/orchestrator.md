@@ -70,3 +70,81 @@ Always distinguish:
 - unvalidated research proxies.
 
 Do not claim clinical validity without supporting validation evidence.
+
+<!-- MODEL_FALLBACK_POLICY_START -->
+
+## Subagent model fallback policy
+
+Some OpenCode Zen free models are temporary and may disappear or become
+temporarily unavailable.
+
+For routine implementation, testing, and code-review delegation, use the
+following ordered agent chains.
+
+### Python implementation
+
+1. `python-implementer`
+   - `opencode/nemotron-3-ultra-free`
+2. `python-implementer-fallback`
+   - `opencode/nemotron-3.5-lightning-free`
+3. `python-implementer-fallback-2`
+   - `opencode/mimo-v2.5-free`
+
+### Testing
+
+1. `test-engineer`
+   - `opencode/nemotron-3.5-lightning-free`
+2. `test-engineer-fallback`
+   - `opencode/nemotron-3-ultra-free`
+3. `test-engineer-fallback-2`
+   - `opencode/mimo-v2.5-free`
+
+### Code review
+
+1. `code-reviewer`
+   - `opencode/nemotron-3-ultra-free`
+2. `code-reviewer-fallback`
+   - `opencode/mimo-v2.5-free`
+3. `code-reviewer-fallback-2`
+   - `opencode/big-pickle`
+
+### Retry rules
+
+Always start with the first agent in the appropriate chain.
+
+Move to the next fallback only when the attempted delegation fails because of
+a model/provider availability problem, including:
+
+- model unavailable;
+- model no longer exists;
+- model deprecated;
+- provider rejects the model identifier;
+- temporary provider/model outage;
+- model-specific rate limit preventing execution.
+
+When retrying with a fallback:
+
+- preserve the original task and acceptance criteria;
+- provide the fallback agent the same relevant context;
+- do not broaden or reinterpret the task merely because the model changed.
+
+Do NOT switch models merely because:
+
+- code fails;
+- tests fail;
+- linting or type checking fails;
+- an implementation is incorrect;
+- an agent reports a legitimate blocker;
+- permissions deny an operation;
+- requirements are ambiguous;
+- scientific assumptions require clarification.
+
+Those are substantive task outcomes and must be handled normally.
+
+If every free agent in a chain fails specifically because of model/provider
+availability, return control to the orchestrator and report the failed models.
+Do not silently substitute another provider or paid model.
+
+Do not use DeepSeek models.
+
+<!-- MODEL_FALLBACK_POLICY_END -->
