@@ -166,7 +166,7 @@ def _publish_pose_artifacts(staging: Path, destination: Path) -> None:
             target = destination / name
             staged = staging / name
             if target.exists():
-                backup = destination / f".{name}.backup-{uuid.uuid4().hex}"
+                backup = destination / f"{name}.backup-{uuid.uuid4().hex}"
                 target.replace(backup)
                 backups[target] = backup
             staged.replace(target)
@@ -418,7 +418,7 @@ def estimate_pose_video(
         destination = video.artifact_directory
         staging = Path(
             tempfile.mkdtemp(
-                prefix=f".{destination.name}.pose-staging-", dir=destination.parent
+                prefix=f"{destination.name}.pose-staging-", dir=destination.parent
             )
         )
     except Exception:

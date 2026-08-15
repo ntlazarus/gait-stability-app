@@ -405,7 +405,7 @@ def _seek_and_decode(capture: cv2.VideoCapture, frame_index: int) -> Any:
 def _publish_staging(staging: Path, destination: Path) -> None:
     backup: Path | None = None
     if destination.exists():
-        backup = destination.with_name(f".{destination.name}.backup-{uuid.uuid4().hex}")
+        backup = destination.with_name(f"{destination.name}.backup-{uuid.uuid4().hex}")
         try:
             destination.replace(backup)
         except OSError as exc:
@@ -484,7 +484,7 @@ def inspect_video(
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(
-        tempfile.mkdtemp(prefix=f".{source.stem}.staging-", dir=destination.parent)
+        tempfile.mkdtemp(prefix=f"{source.stem}.staging-", dir=destination.parent)
     )
 
     try:

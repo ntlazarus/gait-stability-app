@@ -2,68 +2,85 @@
 
 ## Snapshot metadata
 
-- Snapshot UTC: `2026-08-12T23:19:40Z`
+- Snapshot UTC: `2026-08-14T16:44:54Z`
 - Git branch: `main`
-- HEAD: `b28aa85` (`chore: modify OpenCode permission settings`)
-- Working tree: dirty due to the uncommitted MVP Step 2 implementation
+- HEAD: `e4df68d` (`chore: support for fallback OpenCode models`)
+- Working tree: dirty; the Step 3 implementation and related documentation are
+  uncommitted
 - Verification environment: Python `3.13.5` at
-  `/tmp/opencode/gait-step2-venv`
+  `/tmp/opencode/gait-step3-venv`
 
 ## What the project currently is
 
-The current executable MVP is a local Python pipeline with two workflows:
+The executable MVP is a local, research-only Python pipeline with three stages:
 
-1. Step 1 inspects an MP4/MOV, records source and decoder metadata, and saves
-   deterministic representative decoded frames.
-2. Step 2 runs MediaPipe Tasks Pose Landmarker 1.0.0 over every nominal frame
-   slot and writes canonical raw pose estimates, frame outcomes, provenance,
-   and an annotated video.
+1. Step 1 inspects MP4/MOV video and saves metadata plus representative frames.
+2. Step 2 estimates raw monocular pose with MediaPipe Tasks Pose Landmarker 1.0.0.
+3. Step 3 validates, quality-gates, interpolates bounded gaps, smooths planar
+   trajectories, and produces auditable quality and provenance artifacts.
 
-Step 2 stops at unvalidated raw pose-model output. Pose quality preprocessing,
-gait events, center-of-mass estimation, gait/stability metrics, reporting UI/API,
-and scientific or clinical validation are not implemented.
+The pipeline produces video observations, unvalidated pose-model estimates, and
+processed normalized trajectories. It does not produce validated gait events,
+physical measurements, stability metrics, diagnoses, or clinical conclusions.
 
 ## Current capabilities
 
 ### Step 1: video inspection
 
 - CLI: `python scripts/inspect_video.py INPUT [--output-root OUTPUTS]`.
-- API: `gait_stability.inspect_video(video_path, output_root=Path("outputs"))`.
-- Accepts `.mp4` and `.mov` by extension and validates path, decoder opening,
-  dimensions, nominal FPS, and nominal integer frame count.
-- Records resolved source path, file size and SHA-256; OpenCV version/backend;
-  extension-derived container indicator; orientation/auto-orientation status;
-  dimensions; and nominal timing.
-- Requests frames at 0%, 25%, 50%, 75%, and 100% of `frame_count - 1`, with
-  ordered de-duplication. If an exact request fails, it tries at most the 10
-  preceding indices and records requested and actual indices separately.
-- Stages a complete inspection result before replacing the same-stem output.
+- API: `gait_stability.inspect_video(video_path, output_root)`.
+- Accepts local `.mp4` and `.mov` files and validates decoder opening, dimensions,
+  nominal FPS, and nominal integer frame count.
+- Records source hash/size, OpenCV/backend and orientation status, nominal timing,
+  and frames requested at 0%, 25%, 50%, 75%, and 100% of the nominal range.
+- A failed representative decode uses at most 10 preceding frame indices and
+  records requested and actual indices. Complete staged output replaces the
+  same-stem destination through unique, non-dot same-directory staging and backup
+  paths.
 
 ### Step 2: raw pose estimation
 
 - CLI: `python scripts/estimate_pose.py INPUT --model MODEL.task [options]`.
 - API: `gait_stability.estimate_pose_video(video_path, estimator, output_root)`
-  through a backend-independent `PoseEstimator` contract.
-- Uses MediaPipe Tasks Pose Landmarker 1.0.0, CPU `VIDEO` mode, one pose, no
-  segmentation masks, and the explicit local `.task` model supplied by the user.
-- Reuses Step 1 output only when its source path and SHA-256 match; otherwise it
-  runs Step 1 first.
-- Processes every nominal frame slot and distinguishes `decoded_pose`,
-  `decoded_no_pose`, and `decode_failure`; failed decodes are never filled with
-  landmarks. A verified seek is attempted after a non-terminal decode failure.
-- Preserves all 33 MediaPipe landmarks with canonical IDs/names, normalized
-  image coordinates, backend-relative `z`, visibility, presence, and a nullable
-  generic confidence field. World landmarks are not stored.
-- Writes an annotated MP4 in nominal order. Decode failures receive labeled
-  black placeholders so frame count/order are preserved; audio is not retained.
-- Replaces only Step 2 artifacts, preserving Step 1 metadata and sample frames.
+  through the backend-independent `PoseEstimator` contract.
+- Uses MediaPipe Tasks 1.0.0 in CPU `VIDEO` mode with one pose and an explicit
+  local model. It reuses matching Step 1 metadata or reruns inspection.
+- Processes every nominal frame slot as `decoded_pose`, `decoded_no_pose`, or
+  `decode_failure`; annotated output preserves nominal order and uses black
+  placeholders for decode failures.
+- Preserves 33 canonical landmark rows with normalized image `x`/`y`, learned
+  backend-relative `z`, visibility, presence, and nullable generic confidence.
+  World landmarks, segmentation masks, and audio are omitted.
+
+### Step 3: pose quality and preprocessing
+
+- CLI: `python scripts/preprocess_pose.py ARTIFACT_DIRECTORY [options]`.
+- API: `gait_stability.preprocess_pose(directory_or_contract, config)`.
+- Requires canonical Step 2 schema version 2 artifacts. It validates schemas,
+  frame/landmark relationships, distinct input/output paths, and input hashes.
+- Builds a complete nominal-frame by 33-landmark audit grid while retaining raw
+  values and quality scores unchanged.
+- By default, finite visibility and presence must each be `>=0.5`; generic
+  confidence is disabled. These are engineering heuristics, not calibrated
+  accuracy cutoffs.
+- Processes normalized image-plane `x` and `y` independently. It linearly
+  interpolates only interior scalar gaps of at most 3 frames when both endpoints
+  are raw-observed usable; it never extrapolates, recursively interpolates, or
+  processes `z` or confidence.
+- Applies a centered, unweighted, 3-frame boxcar independently within contiguous
+  nonmissing scalar segments. Window `1` disables smoothing. Segment endpoints
+  retain one-sample support.
+- Reports raw usability, rejections, interpolation, smoothing support, remaining
+  missingness, required-landmark simultaneous coverage, gap runs, hashes, runtime,
+  configuration, and inherited provenance. It assigns no quality label.
+- Publishes the Step 3 set through unique, non-dot same-directory staging and
+  backup paths, with rollback on reported rename failure, and preserves the Step
+  2 inputs unchanged.
 
 ## Quick start
 
-Python 3.11 or newer is supported. MediaPipe 1.0.0 declares the GUI
-`opencv-contrib-python` distribution, which is unsuitable on headless Linux
-without `libGL`. Install the headless environment from the repository root in
-this exact order:
+Python 3.11 or newer is supported. For the headless MediaPipe 1.0.0 environment,
+run from the repository root in this order:
 
 ```bash
 python3 -m venv .venv
@@ -74,21 +91,18 @@ python3 -m venv .venv
 .venv/bin/python -m pip check
 ```
 
-The local compatibility package contains no Python/OpenCV implementation. It
-provides only MediaPipe's required distribution name and depends on the actual
-`opencv-contrib-python-headless>=5.0,<5.1` implementation. Installing MediaPipe
-with `--no-deps` is required to prevent pip from selecting GUI OpenCV first.
-`requirements-pose-headless.txt` records the equivalent requirements but does
-not remove that ordering constraint.
+MediaPipe declares GUI OpenCV, so `--no-deps` plus the local metadata-only
+provider is required to retain the actual headless OpenCV implementation. Obtain
+the full Pose Landmarker `.task` manually as documented in `models/README.md`;
+the application never downloads a model.
 
-Download the full Pose Landmarker model manually as documented in
-`models/README.md`; the application does not download it. The model is an
-ignored local runtime input, not bundled with the repository. Then run:
+Run the complete current workflow:
 
 ```bash
+.venv/bin/python scripts/inspect_video.py path/to/walk.mp4 --output-root outputs
 .venv/bin/python scripts/estimate_pose.py path/to/walk.mp4 \
-  --model models/pose_landmarker_full.task \
-  --output-root outputs
+  --model models/pose_landmarker_full.task --output-root outputs
+.venv/bin/python scripts/preprocess_pose.py outputs/walk
 ```
 
 ## Key workflows
@@ -102,10 +116,11 @@ ignored local runtime input, not bundled with the repository. Then run:
 
 - Input: one readable local `.mp4` or `.mov` outside its deterministic output
   destination.
-- Output: `outputs/<video-stem>/video_metadata.json` and JPEGs under
+- Options: `--output-root` defaults to `outputs`.
+- Outputs: `outputs/<video-stem>/video_metadata.json` and JPEG observations under
   `sample_frames/`.
-- Success: the metadata path is printed and all selected frames have exact or
-  explicitly recorded bounded-fallback decodes.
+- Success: the metadata path is printed after all requested samples are decoded
+  exactly or through recorded bounded fallback.
 
 ### Estimate raw pose
 
@@ -118,85 +133,94 @@ ignored local runtime input, not bundled with the repository. Then run:
   --min-tracking-confidence 0.5
 ```
 
-- Inputs: a Step 1-compatible video and an existing MediaPipe Pose Landmarker
-  `.task` asset.
-- Options: the three confidence thresholds accept finite values in `[0, 1]` and
-  default to `0.5`; `--output-root` defaults to `outputs`.
-- Output: the four Step 2 artifacts under `outputs/<video-stem>/`, alongside
-  retained Step 1 artifacts.
-- Success: `pose_metadata.json` is printed after all nominal slots and all four
-  staged Step 2 files are published.
+- Inputs: a Step 1-compatible video and existing Pose Landmarker `.task` file.
+- Options: all three backend thresholds default to `0.5` and accept `[0,1]`;
+  `--output-root` defaults to `outputs`.
+- Outputs: `raw_landmarks.csv`, `pose_frames.csv`, `pose_metadata.json`, and
+  `annotated_pose.mp4` beside retained Step 1 artifacts.
+- Success: the pose metadata path is printed after every nominal slot is recorded
+  and all four Step 2 artifacts are published through unique, non-dot
+  same-directory staging and backup paths.
+
+### Quality-assess and preprocess pose
+
+```bash
+.venv/bin/python scripts/preprocess_pose.py outputs/walk \
+  --visibility-threshold 0.5 \
+  --presence-threshold 0.5 \
+  --max-gap-frames 3 \
+  --smoothing-window-frames 3
+```
+
+- Input: one artifact directory containing canonical `raw_landmarks.csv`,
+  `pose_frames.csv`, and schema-version-2 `pose_metadata.json`.
+- Options: disable visibility/presence gates with `--disable-visibility` or
+  `--disable-presence`; enable the generic confidence gate with
+  `--enable-confidence`; select plot rows with `--diagnostic-landmarks`; suppress
+  plotting with `--no-diagnostic`. Run `--help` for all controls.
+- Outputs: `processed_landmarks.csv`, `pose_quality.json`,
+  `preprocessing_metadata.json`, and normally
+  `pose_trajectory_diagnostic.png` in the same artifact directory.
+- Success: the preprocessing metadata path is printed after input hashes are
+  rechecked and the complete Step 3 set is published.
 
 ## Inputs
 
-- Video formats are selected by `.mp4`/`.mov` filename extension and decoded by
-  OpenCV; codec/container support therefore depends on the installed backend.
-- Step 1 rejects invalid metadata and a source nested inside
-  `<output-root>/<video-stem>/`. Different inputs with the same stem share a
-  destination and can replace prior same-stem artifacts.
-- Step 2 consumes monocular RGB frames. It does not require, record, or verify
-  camera view, gait direction, camera placement, or mirroring.
-- No camera intrinsics/extrinsics, distortion correction, physical scale,
-  multi-view reconstruction, anthropometry, or gait events are consumed.
-- The model file is explicit, local, ignored/untracked, and identified in output
-  provenance by resolved path, filename, byte size, and SHA-256.
+- Video selection is extension-based (`.mp4`/`.mov`); actual codec/container
+  support, seeking, frame positions, and orientation behavior depend on OpenCV.
+- Different videos with the same stem share an output destination. A source
+  nested inside its own destination is rejected.
+- Step 2 uses monocular RGB and an explicit ignored local `.task` model. It does
+  not require or verify camera view, gait direction, placement, or mirroring.
+- No camera calibration, physical scale, distortion correction, anthropometry,
+  multi-view reconstruction, or gait events are inputs.
+- Step 3 accepts only the canonical Step 2 CSV/JSON contract. Finite normalized
+  coordinates outside `[0,1]` remain usable but are flagged; nonfinite values are
+  unusable. Nominal timestamps are not verified presentation timestamps.
 
 ## Outputs
 
 For an input stem `walk`:
 
 ```text
-<output-root>/walk/
+outputs/walk/
 |-- video_metadata.json
-|-- sample_frames/frame_<actual-source-index>.jpg
+|-- sample_frames/*.jpg
 |-- raw_landmarks.csv
 |-- pose_frames.csv
 |-- pose_metadata.json
-`-- annotated_pose.mp4
+|-- annotated_pose.mp4
+|-- processed_landmarks.csv
+|-- pose_quality.json
+|-- preprocessing_metadata.json
+`-- pose_trajectory_diagnostic.png
 ```
 
-- `video_metadata.json`: observed file/OpenCV metadata, nominal timing, source
-  provenance, and requested-versus-actual representative-frame decode records.
-- `sample_frames/*.jpg`: decoded image observations from Step 1.
-- `raw_landmarks.csv`: zero or more pose-model estimate rows per detected frame.
-  Columns are `frame_index`, `nominal_timestamp_seconds`, `landmark_id`,
-  `landmark_name`, `x_normalized`, `y_normalized`, `z_backend_relative`,
-  `visibility`, `presence`, and `confidence`.
-- `pose_frames.csv`: exactly one status row per attempted nominal slot. Columns
-  are `frame_index`, `nominal_timestamp_seconds`,
-  `backend_timestamp_milliseconds`, `status`, `landmark_count`, and `detail`.
-  Backend timestamps are blank for decode failures; `landmark_count` is a row
-  count, not a quality score.
-- `pose_metadata.json` (schema version 2): source/model hashes, dimensions/FPS,
-  backend/version/configuration, frame counts, coordinate/confidence/timestamp
-  semantics, schemas, output names, rendering behavior, and limitations.
-- `annotated_pose.mp4`: pose-model estimates over decoded frames at source
-  decoded dimensions and nominal FPS/order, plus status labels/placeholders.
-
-CSV was chosen deliberately to avoid pandas, PyArrow, and other Parquet engine
-dependencies and to remain inspectable with Python's standard library. Pose
-CSV rows and overlays are unvalidated pose-model estimates, not direct
-observations, derived biomechanical measurements, stability proxies, or clinical
-measurements. No derived measurement output exists yet.
+- Direct observations: decoded Step 1 JPEGs and source/decoder metadata.
+- Pose-model estimates: Step 2 landmark CSV and annotated video. `x`/`y` are
+  dimensionless image-plane estimates; `z` is learned model-relative depth.
+- Derived research data: Step 3's complete audit grid, heuristic usability flags,
+  bounded interpolants, smoothed normalized trajectories, descriptive quality
+  report, diagnostic plot, and provenance metadata.
+- No output is a validated physical measurement, gait event, gait/stability
+  metric, fall-risk estimate, diagnosis, or clinical result.
 
 ## Configuration
 
-- `pyproject.toml`: Python `>=3.11`, headless OpenCV runtime dependency, optional
-  MediaPipe transitive requirements, dev dependencies, and Ruff/mypy/pytest
-  settings. Mypy targets Python 3.13 because current dependency stubs use newer
-  syntax.
-- `requirements-pose-headless.txt`: documented headless pose requirements.
-- `compat/opencv-contrib-python-headless-provider/`: metadata-only compatibility
-  distribution for MediaPipe's GUI OpenCV package-name requirement.
-- `models/README.md`: manual model acquisition and hash/size provenance steps.
-- Pose CLI thresholds: detection, presence, and tracking all default to `0.5`.
-  They are backend processing thresholds, not project quality filters or
-  validated accuracy cutoffs.
-- Output location: `--output-root`, default `outputs`.
+- `pyproject.toml`: Python `>=3.11`; headless OpenCV; optional pose/plot and dev
+  dependencies; Ruff, mypy, and pytest settings. Mypy parses as Python 3.13.
+- `requirements-pose-headless.txt` and
+  `compat/opencv-contrib-python-headless-provider/`: reproducible headless
+  MediaPipe dependency setup.
+- `models/README.md`: manual model acquisition and hash/size provenance.
+- Step 2 defaults: detection, pose presence, and tracking thresholds `0.5`.
+- Step 3 defaults: visibility `0.5`, presence `0.5`, generic confidence disabled,
+  maximum gap `3` frames, centered boxcar window `3`, and diagnostic enabled for
+  ankles, heels, and hips.
 
 ## Testing and verification
 
-Normal verification from the repository root in the prepared environment:
+Normal verification from the repository root:
 
 ```bash
 .venv/bin/ruff format --check .
@@ -207,94 +231,91 @@ Normal verification from the repository root in the prepared environment:
 git diff --check
 ```
 
-Fresh supplied evidence after final fixes, using Python 3.13.5 at
-`/tmp/opencode/gait-step2-venv`:
+Fresh session evidence using Python `3.13.5` at
+`/tmp/opencode/gait-step3-venv`:
 
-- `ruff format --check .`, `ruff check .`, `python -m mypy src scripts`, and
-  `git diff --check` passed.
-- `python -m pytest` passed all 93 tests. Tests cover Step 1 validation,
-  fallback/publishing, real synthetic OpenCV I/O, sequential decode outcomes,
-  canonical serialization, MediaPipe adapter contracts, rendering, metadata,
-  CLI behavior, and Step 2 artifact preservation/rollback.
-- `python -m pip check` reported no broken requirements.
+- Ruff formatting passed for 46 files; Ruff lint passed.
+- Mypy passed for 9 source files.
+- Pytest passed all 130 tests in 8.97 seconds.
+- `pip check` reported no broken requirements.
+- `git diff --check` passed.
 
-A separate orchestrator-run local integration used MediaPipe Tasks Pose
-Landmarker 1.0.0 full model in CPU `VIDEO` mode. Only these supplied aggregate,
-non-identifying results are recorded here; its input/artifacts were not inspected
-while creating this snapshot:
+Tests cover Step 1 validation/decoding/publication, Step 2 contracts/backend/CLI
+and artifact handling, and Step 3 schema validation, independent scalar gating,
+bounded interpolation, smoothing, quality/provenance semantics, diagnostics,
+input preservation, CLI behavior, and publication rollback.
 
-- Source metadata: 301 nominal frames, 30 FPS, 1440x1080.
-- Processing: 301 attempted; 300 decoded with pose detected; one terminal decode
-  failure; 301 annotated frames including the failure placeholder.
-- All required shoulder, hip, knee, ankle, heel, and `foot_index` labels were
-  returned on all 300 detected frames.
-- Frames 0, 75, 150, 225, and 299 plus frame 300's failure placeholder were
-  manually inspected. The skeleton was generally aligned with shoulders, hips,
-  knees, ankles, heels, and feet in those samples, with expected side-view
-  overlap/occlusion risk and no obvious total tracking loss in decoded samples.
-- Ignored, untracked artifacts were
-  `outputs/A_Video/raw_landmarks.csv`, `outputs/A_Video/pose_frames.csv`,
-  `outputs/A_Video/pose_metadata.json`, and
-  `outputs/A_Video/annotated_pose.mp4`.
+### Aggregate Step 3 exercise
 
-This integration check demonstrates execution and sample-level visual
-plausibility only; it is not pose accuracy, biomechanical, gait, stability, or
-clinical validation.
+Only aggregate, non-identifying evidence from the ignored `outputs/A_Video`
+exercise is recorded:
+
+- 301 nominal frames; pose was detected on 300.
+- All 12 required gait landmarks were simultaneously raw-usable on 299/301
+  frames and processed-complete on 300/301 frames.
+- One left-knee low-confidence sample at frame 43 formed a one-sample interior gap
+  and was interpolated. Terminal frame 300 remains missing.
+- The recorded Step 2 input hashes still match all three current raw artifacts.
+- The run used visibility/presence thresholds `0.5`, maximum gap 3 frames, and a
+  centered boxcar window of 3 frames.
+- Diagnostics show periodic lower-limb trajectories, but some abrupt raw foot
+  departures remain. No automated spike, swap, or tracking-discontinuity
+  detection exists.
+
+Readiness is bounded: these outputs are sufficient only for exploratory Step 4
+gait-event algorithm development on frames 0-299, with manual review and
+raw-versus-smoothed sensitivity checks. They are not validated contact events,
+measurements, or clinical outputs.
 
 ## Known limitations
 
-- Frame timestamps and duration are nominal values derived from frame index,
-  nominal FPS, and nominal frame count, not verified presentation timestamps.
-  MediaPipe submission timestamps are rounded nominal milliseconds and made
-  strictly increasing when necessary.
-- OpenCV-reported nominal frame count can exceed decodable content. Step 2 emits
-  explicit failures/placeholders; an unverified recovery seek causes remaining
-  nominal slots to be marked failed rather than mislabeled.
-- OpenCV seeking, frame-position reporting, codec support, and orientation
-  behavior are backend-dependent. The project requests auto-orientation off but
-  does not rotate or mirror frames itself.
-- Normalized `x`/`y` are dimensionless image-plane estimates and may be outside
-  `[0, 1]`. Pixel overlays use `round(normalized * (dimension - 1))` without
-  clipping. MediaPipe `z` is learned model-relative monocular depth, not camera,
-  laboratory, metric, or physical depth.
-- Left/right are model body-side labels. `foot_index` and `heel` are model labels,
-  not verified toe/contact points or ground-contact locations. Landmarks are not
-  anatomical joint centers.
-- Visibility and presence are raw model scores, not observed/calibrated
-  probabilities, uncertainty, or accuracy. Generic `confidence` remains null.
-- The project performs no confidence filtering, interpolation, or smoothing.
-  MediaPipe `VIDEO` mode may internally track or temporally smooth, so "raw"
-  means selected backend fields are unchanged by project postprocessing.
-- Overlay rendering draws all returned landmarks/connections without confidence
-  or bounds filtering. It is for inspection, not measurement.
-- Outputs are unvalidated pose-model estimates. There is no calibration,
-  physical unit conversion, gait-event detection, COM estimation, gait metric,
-  stability metric, fall-risk assessment, diagnosis, or clinical validity.
-- There is no UI/service API. Models, source videos, and generated outputs are
-  local ignored artifacts and must not be treated as repository-bundled assets.
+- Timing uses nominal frame index/FPS rather than verified presentation time.
+  Nominal frame count can exceed decodable content.
+- Orientation, seeking, codecs, and frame-position reporting are backend-dependent;
+  the project requests auto-orientation off but performs no rotation or mirroring.
+- MediaPipe `VIDEO` mode may internally track or smooth. Step 2 "raw" means no
+  project postprocessing of selected backend fields.
+- Visibility and presence are model scores, not calibrated confidence, uncertainty,
+  accuracy, or ground truth. Landmarks are not anatomical joint centers, and heel
+  or `foot_index` labels are not validated ground-contact points.
+- Step 3 interpolation can hide phase-dependent missingness or cross an unknown
+  gait event. Boxcar smoothing attenuates amplitude and does not preserve extrema,
+  derivatives, threshold crossings, or event timing.
+- Step 3 does not detect spikes, left/right swaps, tracking discontinuities, camera
+  motion, or phase-dependent missingness.
+- Publication rolls back reported rename failures, but abrupt interruption may
+  leave a visible `*.backup-*` or `*.staging-*` recovery path requiring manual
+  recovery. Non-dot transaction names intentionally avoid Finder-hidden output
+  directories and remain visible through container bind mounts. A `*.backup-*`
+  path is the prior published output; a `*.staging-*` path is an unpublished or
+  incomplete candidate. Do not merge them. If the final destination is missing
+  or incomplete, first move it aside, rename the backup to the final name, and
+  verify the restored output before deleting leftovers. Step 2 or Step 3 backup
+  cleanup failures may leave visible backup files after successful publication.
+- There is no calibration, physical unit conversion, gait-event/contact detection,
+  COM estimation, gait or stability metric, reference-system validation, UI, or
+  service API.
 
 ## Repository map
 
 ```text
-src/gait_stability/   Step 1 ingestion, pose contracts/backend, Step 2 pipeline
-scripts/              Thin inspection and pose-estimation CLIs
-tests/                Deterministic unit/CLI/integration-boundary tests
-docs/                 MVP plan/prompts and this canonical current-state snapshot
-models/README.md       Local ignored model acquisition/provenance instructions
-compat/                Metadata-only headless OpenCV dependency compatibility
+src/gait_stability/   Step 1 ingestion, Step 2 pose, Step 3 preprocessing APIs
+scripts/              Thin CLIs for inspect, estimate, and preprocess workflows
+tests/                Deterministic unit, CLI, and pipeline-boundary tests
+docs/                 Plans, prompts, and this canonical current-state snapshot
+models/README.md       Local ignored pose-model acquisition/provenance instructions
+compat/                Metadata-only headless OpenCV compatibility distribution
 outputs/               Ignored generated artifacts
-data/                  Ignored local data; participant data must not be committed
-.opencode/             OpenCode agents, commands, and scientific workflow skills
+data/                  Ignored local data; subject data must not be committed
+.opencode/             Agent, command, and scientific workflow configuration
 ```
 
 ## Next logical capabilities
 
-The following Step 3+ capabilities are not implemented:
-
-- Pose quality reports, confidence filtering, missing-data policy, bounded
-  interpolation, and trajectory smoothing while retaining raw estimates.
-- Validated gait-event/stride detection and explicit biomechanical coordinate
-  handling.
-- Calibrated or clearly normalized COM and gait measurements.
-- Defined and validated candidate stability metrics and research reporting.
-- A UI/API that invokes, rather than reimplements, the scientific pipeline.
+- Step 4 candidate gait-event detection with explicit event definitions, manual
+  review, raw-versus-smoothed sensitivity analysis, and reference-label validation.
+- Automated spike, swap, tracking-discontinuity, camera-motion, and phase-dependent
+  missingness detection.
+- Calibrated or explicitly normalized COM/gait measurements and documented
+  candidate stability metrics, each with validation evidence.
+- Research reporting and a UI/API that invoke rather than reimplement the pipeline.

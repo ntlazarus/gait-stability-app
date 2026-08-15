@@ -1,4 +1,4 @@
-"""Video ingestion and backend-independent raw pose components."""
+"""Video ingestion, raw pose, and auditable pose preprocessing components."""
 
 from gait_stability.pose_contracts import (
     CANONICAL_POSE_CONNECTIONS,
@@ -14,6 +14,16 @@ from gait_stability.pose_pipeline import (
     PosePipelineError,
     PoseRunArtifacts,
     estimate_pose_video,
+)
+from gait_stability.pose_preprocessing import (
+    DEFAULT_DIAGNOSTIC_LANDMARKS,
+    REQUIRED_GAIT_LANDMARKS,
+    PoseArtifactValidationError,
+    PosePreprocessingArtifacts,
+    PosePreprocessingConfig,
+    PosePreprocessingError,
+    RawPoseArtifacts,
+    preprocess_pose,
 )
 from gait_stability.video_ingestion import (
     ArtifactPublishError,
@@ -51,7 +61,14 @@ __all__ = [
     "PoseFrameResult",
     "PoseFrameStatus",
     "PosePipelineError",
+    "PoseArtifactValidationError",
+    "PosePreprocessingArtifacts",
+    "PosePreprocessingConfig",
+    "PosePreprocessingError",
     "PoseRunArtifacts",
+    "RawPoseArtifacts",
+    "REQUIRED_GAIT_LANDMARKS",
+    "DEFAULT_DIAGNOSTIC_LANDMARKS",
     "SampledFrameRecord",
     "SelectedFrameDecodeError",
     "SelectedFrameWriteError",
@@ -67,5 +84,6 @@ __all__ = [
     "inspect_video",
     "load_matching_video_metadata",
     "normalized_to_pixel",
+    "preprocess_pose",
     "sha256_file",
 ]

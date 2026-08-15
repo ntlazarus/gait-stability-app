@@ -90,12 +90,17 @@ rejected, did not support, or errored on the request to disable OpenCV
 auto-orientation. Rejected or unsupported requests do not establish that decoded
 frames are unrotated. The inspector performs no additional rotation.
 
-Artifacts are staged completely before output replacement. Reported rename
-failures trigger rollback of the prior result, but replacing an existing output
-requires two same-filesystem renames. Interruption between them can leave the
-prior result in a hidden `.backup-*` sibling requiring manual recovery. This
-stage only records video properties; it performs no pose, gait, biomechanical,
-or clinical assessment.
+Artifacts are staged completely in a unique, non-dot same-directory path before
+output replacement. Reported rename failures trigger rollback of the prior
+result, but replacing an existing output requires two same-filesystem renames.
+Abrupt interruption may leave a visible `*.backup-*` or `*.staging-*` recovery
+path requiring manual recovery. A `*.backup-*` path contains the prior published
+output; a `*.staging-*` path contains an unpublished or incomplete candidate. Do
+not merge them. If the final destination is missing or incomplete, first move it
+aside, rename the backup to the final name, and verify the restored output before
+deleting any leftovers. Step 2 or Step 3 backup-cleanup failures may leave visible
+backup files even after publication succeeds. This stage only records video
+properties; it performs no pose, gait, biomechanical, or clinical assessment.
 
 The package runtime remains Python 3.11 or newer. Static checks currently target
 Python 3.13 so mypy can parse the NumPy stubs installed with OpenCV 5 in the
@@ -132,7 +137,8 @@ standard dependency metadata, not a runtime substitution performed by the app.
 The `pose` optional dependency group lists MediaPipe 1.0.0's declared transitive
 runtime requirements (`absl-py`, `certifi`, `flatbuffers`, `matplotlib`, and
 `sounddevice`). They are installed to satisfy the backend distribution; the gait
-application does not import them directly. MediaPipe itself is installed
+application uses Matplotlib only for Step 3's optional diagnostic plot and does
+not directly import the other listed packages. MediaPipe itself is installed
 separately with `--no-deps` only to avoid its GUI OpenCV distribution.
 
 Download the recommended full Pose Landmarker model manually using the official
@@ -149,8 +155,9 @@ a model. Then run:
 ```
 
 The command reuses matching Step 1 metadata and samples. If they are absent or
-the source path/hash is stale, it runs inspection first. It stages and replaces
-only these Step 2 files under `outputs/<video_stem>/`:
+the source path/hash is stale, it runs inspection first. It uses unique, non-dot
+same-directory staging and backup paths to replace only these Step 2 files under
+`outputs/<video_stem>/`:
 
 - `raw_landmarks.csv`: one row per detected canonical landmark, preserving
   nominal frame/time, landmark ID/name, normalized image `x`/`y`, backend-relative
@@ -187,18 +194,140 @@ toe/contact point, and `heel` is not a ground-contact location. MediaPipe `z` is
 learned monocular model-relative depth, with the hip midpoint as origin and
 roughly the same scale as `x`; it is not camera/laboratory depth or metric.
 
-Visibility and presence are raw model scores, not observed or calibrated
-probabilities, uncertainty, or accuracy. Backend thresholds control backend
-processing and are not validated quality cutoffs. MediaPipe visibility is not
-renamed as generic confidence. `decoded_pose` means only that the backend returned
-a nonempty pose result. "Raw" means selected backend fields are unchanged by
-project postprocessing; MediaPipe `VIDEO` mode may internally track or temporally
-smooth. World landmarks and segmentation masks are deliberately omitted.
+`visibility` is a raw backend model score associated with landmark visibility.
+`presence` is a separate raw backend model score associated with landmark
+presence. Neither score is calibrated accuracy, probability, or ground truth,
+and neither is an anatomical or positional measurement. Backend thresholds
+control backend processing and are not validated quality cutoffs. MediaPipe
+visibility is not renamed as generic confidence. `decoded_pose` means only that
+the backend returned a nonempty pose result. "Raw" means selected backend fields
+are unchanged by project postprocessing; MediaPipe `VIDEO` mode may internally
+track or temporally smooth. World landmarks and segmentation masks are
+deliberately omitted.
 There is no project interpolation, gait-event detection, COM estimation, gait or
 stability metric, biomechanical validation, or clinical interpretation.
 Landmarks are not anatomical joint centers, laboratory coordinates, or clinical
 measurements, and outputs have not been validated against labels or a reference
 measurement system.
+
+## Pose Quality and Preprocessing
+
+Step 3 consumes an existing Step 2 artifact directory and writes a separate,
+auditable processed dataset alongside the raw artifacts:
+
+```bash
+.venv/bin/python scripts/preprocess_pose.py outputs/walk \
+  --visibility-threshold 0.5 \
+  --presence-threshold 0.5 \
+  --max-gap-frames 3 \
+  --smoothing-window-frames 3
+```
+
+The Python API accepts either the artifact directory or an explicit
+`RawPoseArtifacts` contract:
+
+```python
+from gait_stability import PosePreprocessingConfig, preprocess_pose
+
+artifacts = preprocess_pose(
+    "outputs/walk",
+    PosePreprocessingConfig(max_gap_frames=3, smoothing_window_frames=3),
+)
+```
+
+The default filter requires finite visibility and presence scores greater than
+or equal to `0.5`; generic confidence is disabled because Step 2's current
+MediaPipe backend does not provide it. These thresholds are configurable
+engineering heuristics, not calibrated probabilities or validated accuracy
+cutoffs. In Step 3 metadata, `visibility` remains the raw backend model score
+associated with landmark visibility and `presence` remains the distinct raw
+backend model score associated with landmark presence; neither is calibrated
+accuracy, probability, or ground truth. Use `--disable-visibility`,
+`--disable-presence`, or
+`--enable-confidence` only when the input schema's score applicability is
+understood. Finite normalized `x`/`y` values outside `[0, 1]` remain usable but
+are flagged; nonfinite coordinates are unusable.
+
+The command validates all three Step 2 inputs before processing. It derives a
+complete nominal frame by 33-landmark audit grid while preserving sparse raw
+rows, coordinates, backend-relative `z`, and confidence fields unchanged.
+The three resolved input paths must be distinct from one another and from every
+Step 3 output path. Step 2 metadata must declare schema version 2, and explicit
+embedded CSV schemas must match. Input hashes are captured before parsing and
+rechecked immediately before publication; a concurrent change fails without
+replacing the prior Step 3 set.
+Only normalized image-plane `x` and `y` are processed. Interior scalar gaps of
+at most `--max-gap-frames` missing samples are interpolated linearly by nominal
+timestamp when both endpoints are raw-observed usable for that scalar
+coordinate. After landmark-level enabled-score gating, finite `x` and `y` are
+independently usable: one remains observed and processable when the other is
+nonfinite. The audit field `observed_usable` retains planar meaning and is true
+only when both `x_observed_usable` and `y_observed_usable` are true. There is no
+recursive interpolation, extrapolation, confidence interpolation, or `z`
+processing.
+
+Smoothing is a centered unweighted moving average applied independently within
+each contiguous nonmissing scalar segment. The odd window defaults to three;
+one disables smoothing. Each point uses the largest available symmetric odd
+support, so segment endpoints retain their pre-smoothed value. This boxcar
+method is noncausal and index-symmetric, with no fixed group delay under uniform
+sampling, and is not time-weighted for irregular timestamps. This centering does
+not preserve extrema, threshold crossings, derivatives, or gait-event timing.
+The filter can attenuate trajectory amplitude.
+At 30 fps the unvalidated default spans three samples (about 0.1 seconds of
+samples) and about 0.067 seconds between support endpoints. All 33 canonical
+landmarks are eligible for coordinate-level interpolation.
+
+Step 3 stages these files completely in unique, non-dot same-directory paths
+before publication. Publication is rollback-capable for reported rename
+failures, but abrupt process interruption may leave a visible `*.backup-*` or
+`*.staging-*` recovery path requiring manual recovery:
+
+- `processed_landmarks.csv`: complete audit grid with raw, pre-smoothed, and
+  processed planar values plus explicit raw-presence, usability, rejection,
+  coordinate-level raw-observed usability, interpolation, smoothing, and
+  final-missing flags;
+- `pose_quality.json`: frame and required-landmark coverage, per-landmark
+  coverage and confidence summaries, missing/interpolated gap records and
+  durations, point and scalar-coordinate missing/interpolation fractions, and
+  explicit denominator semantics, without a quality label;
+- `preprocessing_metadata.json`: run/configuration, hashes, inherited source and
+  model provenance, versions, Git state, algorithms, schemas, and limitations;
+- `pose_trajectory_diagnostic.png`: raw-versus-processed ankle, heel, and hip
+  `x`/`y` trajectories over nominal time when optional Matplotlib is available.
+
+Use `--diagnostic-landmarks left_ankle,right_ankle` to select canonical plot
+landmarks or `--no-diagnostic` when Matplotlib is unavailable. Disabling the
+diagnostic removes any stale Step 3 diagnostic during successful set
+replacement. Run `python scripts/preprocess_pose.py --help` for all confidence,
+gap, smoothing, and plotting controls.
+
+Step 3 does not detect swaps, spikes, camera motion, phase-dependent missingness,
+or gait events, so interpolation may unknowingly cross an event. It performs no
+camera calibration, physical conversion, COM estimation, gait or stability
+metric, clinical interpretation, or biomechanical validation. Monocular
+normalized trajectories remain nonphysical pose-model estimates, and nominal
+timestamps remain unverified presentation times.
+
+Quality reports distinguish frames where all 12 required gait landmarks were
+raw planar-observed usable from frames where all 12 are processed complete.
+`observed_usable` is only heuristic planar enabled-score and finite-coordinate
+gating; it does not establish positional or anatomical accuracy. "All 12" means
+all 12 named required gait landmarks satisfy the condition simultaneously in the
+same nominal frame, not any 12 landmarks or coverage accumulated across frames.
+Processed completeness may include bounded interpolation and does not imply that
+a landmark was observed or accurate. The legacy fields
+`frames_with_all_12_required_gait_landmarks` and `required_landmark_coverage` are
+ambiguously named aliases for simultaneous-all-12 `observed_usable`, not processed
+completeness or accuracy.
+Per-landmark low-confidence and enabled-score-missing fractions report both
+nominal-frame coverage and fractions among raw returned rows; the latter is
+`null` when no raw row exists. Gap runs are reported separately for `x` and `y`
+with start/end frame indices and nominal timestamps. A one-sample gap has a
+zero-second sample span, and boundary gaps have no bracketing duration. Legacy
+point-union gap fields remain explicitly labeled as unions and must not be used
+to assess the scalar `--max-gap-frames` bound. Finite out-of-image coordinates
+remain usable and flagged.
 
 ## Detailed Rules
 

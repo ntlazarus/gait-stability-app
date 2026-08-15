@@ -359,7 +359,9 @@ def test_invalid_step1_input_error_propagates_without_pose_artifacts(
     assert not output_root.exists()
 
 
-def test_pose_publication_replaces_only_step2_artifacts(tmp_path: Path) -> None:
+def test_pose_publication_replaces_only_step2_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     destination = tmp_path / "destination"
     destination.mkdir()
     (destination / "video_metadata.json").write_text("step 1", encoding="utf-8")
@@ -372,6 +374,15 @@ def test_pose_publication_replaces_only_step2_artifacts(tmp_path: Path) -> None:
     staging.mkdir()
     for name in POSE_ARTIFACT_NAMES:
         (staging / name).write_text(f"new {name}", encoding="utf-8")
+    backup_targets: list[Path] = []
+    original_replace = Path.replace
+
+    def capture_backup_targets(path: Path, target: Path) -> Path:
+        if ".backup-" in target.name:
+            backup_targets.append(target)
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", capture_backup_targets)
 
     _publish_pose_artifacts(staging, destination)
 
@@ -381,7 +392,9 @@ def test_pose_publication_replaces_only_step2_artifacts(tmp_path: Path) -> None:
         (destination / name).read_text(encoding="utf-8") == f"new {name}"
         for name in POSE_ARTIFACT_NAMES
     )
-    assert not list(destination.glob(".*.backup-*"))
+    assert not list(destination.glob("*.backup-*"))
+    assert backup_targets
+    assert all(not path.name.startswith(".") for path in backup_targets)
 
 
 def test_pose_publication_failure_restores_all_previous_step2_artifacts(
@@ -410,7 +423,11 @@ def test_pose_publication_failure_restores_all_previous_step2_artifacts(
         (destination / name).read_text(encoding="utf-8") == f"old {name}"
         for name in POSE_ARTIFACT_NAMES
     )
-    assert not list(destination.glob(".*.backup-*"))
+    assert not list(destination.glob("*.backup-*"))
+    # Regression: backup basenames must not begin with '.'
+    assert not any(
+        (destination / name).name.startswith(".") for name in POSE_ARTIFACT_NAMES
+    )
 
 
 def test_annotated_writer_open_failure_preserves_existing_step1_output(
@@ -443,7 +460,7 @@ def test_annotated_writer_open_failure_preserves_existing_step1_output(
     )
     assert not list(
         video.artifact_directory.parent.glob(
-            f".{video.artifact_directory.name}.pose-staging-*"
+            f"{video.artifact_directory.name}.pose-staging-*"
         )
     )
 
@@ -508,6 +525,6 @@ def test_raster_mismatch_closes_resources_without_publishing(
     )
     assert not list(
         video.artifact_directory.parent.glob(
-            f".{video.artifact_directory.name}.pose-staging-*"
+            f"{video.artifact_directory.name}.pose-staging-*"
         )
     )

@@ -109,7 +109,7 @@ def install_file_writing_imwrite(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
 
 def assert_no_destination_or_staging(output_root: Path, stem: str) -> None:
     assert not (output_root / stem).exists()
-    assert not list(output_root.glob(f".{stem}.staging-*"))
+    assert not list(output_root.glob(f"{stem}.staging-*"))
 
 
 def test_sample_indices_uses_exact_quarter_positions() -> None:
@@ -210,7 +210,11 @@ def test_inspect_video_writes_complete_metadata_and_artifact_layout(
         (destination / relative_path).is_file()
         for relative_path in expected_relative_paths
     )
-    assert all(".staging-" in str(path.parent.parent) for path in staged_image_paths)
+    staging_directories = {path.parent.parent for path in staged_image_paths}
+    assert len(staging_directories) == 1
+    staging_name = next(iter(staging_directories)).name
+    assert staging_name.startswith("Subject Walk.staging-")
+    assert not staging_name.startswith(".")
     expected_json = json.loads(json.dumps(metadata.to_dict()))
     assert json.loads(metadata_path.read_text(encoding="utf-8")) == expected_json
     assert expected_json["auto_orientation_status"].startswith("disabled:")
@@ -348,8 +352,8 @@ def test_inspect_video_rejects_source_inside_output_destination_without_mutation
         sorted(path.relative_to(destination) for path in destination.rglob("*"))
         == existing_paths
     )
-    assert not list(output_root.glob(".walk.staging-*"))
-    assert not list(output_root.glob(".walk.backup-*"))
+    assert not list(output_root.glob("walk.staging-*"))
+    assert not list(output_root.glob("walk.backup-*"))
 
 
 def test_inspect_video_allows_source_in_sibling_of_output_destination(
@@ -689,7 +693,7 @@ def test_write_failure_preserves_existing_destination(
     assert destination.is_dir()
     assert old_artifact.read_text(encoding="utf-8") == "keep me"
     assert list(destination.iterdir()) == [old_artifact]
-    assert not list(output_root.glob(f".{source.stem}.staging-*"))
+    assert not list(output_root.glob(f"{source.stem}.staging-*"))
 
 
 def test_successful_inspection_replaces_existing_destination(
@@ -709,7 +713,7 @@ def test_successful_inspection_replaces_existing_destination(
     assert metadata.artifact_directory == destination.resolve()
     assert not obsolete.exists()
     assert (destination / "video_metadata.json").is_file()
-    assert not list(output_root.glob(f".{source.stem}.backup-*"))
+    assert not list(output_root.glob(f"{source.stem}.backup-*"))
 
 
 def test_backup_cleanup_failure_warns_after_successful_publish(
@@ -731,7 +735,8 @@ def test_backup_cleanup_failure_warns_after_successful_publish(
         video_ingestion._publish_staging(staging, destination)
 
     assert (destination / "new.txt").read_text(encoding="utf-8") == "new"
-    backups = list(tmp_path.glob(".artifacts.backup-*"))
+    # Backup basename is artifacts.backup-<hex> (no leading dot)
+    backups = list(tmp_path.glob("artifacts.backup-*"))
     assert len(backups) == 1
     assert (backups[0] / "old.txt").read_text(encoding="utf-8") == "old"
 
@@ -747,7 +752,8 @@ def test_publish_failure_restores_existing_destination(tmp_path: Path) -> None:
         video_ingestion._publish_staging(missing_staging, destination)
 
     assert old_artifact.read_text(encoding="utf-8") == "old"
-    assert not list(tmp_path.glob(".artifacts.backup-*"))
+    # Regression: generated backup basenames must not begin with '.'
+    assert not list(tmp_path.glob("artifacts.backup-*"))
 
 
 def test_inspect_generated_mp4_with_real_opencv_io(tmp_path: Path) -> None:
