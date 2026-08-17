@@ -1,0 +1,11 @@
+- stored video is upright and correctly oriented - unknown. 
+- whether the image is mirrored - unknown. 
+- model-assigned anatomical left/right labels appear correct - yes;
+- walking direction is image_right or image_left - image-right;
+- view is sufficiently near-sagittal - yes;
+- camera remains static—no meaningful pan, zoom, or shake - yes;
+- walking is treadmill or otherwise compatible with pelvis-relative heel motion - yes;
+- no turns or direction changes occur in the selected bout - yes;
+- only the intended walker is tracked - yes;
+- no obvious left/right swaps, gross tracking jumps, or major heel/hip occlusions - yes;
+- nominal 30 fps timing is accepted as an unverified timing proxy - yes.

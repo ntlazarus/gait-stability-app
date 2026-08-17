@@ -329,6 +329,40 @@ point-union gap fields remain explicitly labeled as unions and must not be used
 to assess the scalar `--max-gap-frames` bound. Finite out-of-image coordinates
 remain usable and flagged.
 
+## Candidate Gait Events and Strides
+
+Step 4 consumes the three canonical Step 3 artifacts in place. Walking direction
+must be manually established:
+
+```bash
+.venv/bin/python scripts/detect_gait_events.py outputs/walk \
+  --walking-direction image_right
+```
+
+Use both `--manual-start-frame` and `--manual-end-frame` for an inclusive manual
+analysis interval. `--video path/to/walk.mp4` overrides only the inherited file
+location; the selected file must match the inherited Step 3 source SHA-256 and
+cannot be a different recording. The command transactionally replaces only these
+six Step 4 artifacts:
+
+- `walking_bout.json`
+- `gait_events.csv`
+- `strides.csv`
+- `gait_event_diagnostic.png`
+- `annotated_gait_events.mp4`
+- `gait_event_metadata.json`
+
+Events are **video-derived candidate initial contacts**, not force-confirmed heel
+strikes. `high` means deterministic algorithmic support, not probability or
+validated accuracy. The pelvis midpoint is a proxy, not COM; toe-off, COM,
+stance, swing, double-support, stability metrics, and clinical outputs are omitted.
+Automatic bout selection uses complete-signal and candidate-count evidence, not a
+periodicity test, and requires manual confirmation before interpretation. Camera
+view, direction, mirroring, and static-camera assumptions are not automatically
+verified. See
+`docs/GAIT_EVENT_METHOD.md` for formulas, artifact semantics, and validation
+limitations.
+
 ## Detailed Rules
 
 LLMs should read `AGENTS.md` first, then consult `.opencode/agents/`,
