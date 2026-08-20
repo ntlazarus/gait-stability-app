@@ -26,6 +26,12 @@ mass fractions), **not** the full model total or body mass. `mass_coverage` is
 the only unrenormalized quantity: the raw sum of usable mass fractions without
 rescaling.
 
+Step 5b qualifies the completeness and provenance of these existing outputs
+without changing Step 5a coordinates. See
+[`COM_QUALIFICATION_METHOD.md`](COM_QUALIFICATION_METHOD.md) for the standalone
+command, diagnostic artifacts, threshold sensitivity, and stride-level
+engineering criteria.
+
 ## Unsupported segments
 
 The head segment is always unavailable because standard MediaPipe Pose lacks
@@ -217,6 +223,13 @@ below this threshold are marked unusable but their COM proxy is retained
 approximately/at most 10 percentage points under rounded coefficients;
 it is not a positional accuracy bound. Full supported max and female
 rounding explicit: female max after omitted head is .9331.
+
+Step 5b preserves this absolute total-body quantity and additionally reports
+`supported_mass_coverage = mass_coverage /
+theoretical_supported_mass_fraction`. The latter is completeness relative to
+the implementation's supported-segment ceiling (`0.9306` male, `0.9331`
+female), not total-body coverage and not an accuracy, confidence, or validity
+score.
 
 ### Below-threshold behavior
 

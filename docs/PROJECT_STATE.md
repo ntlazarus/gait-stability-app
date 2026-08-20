@@ -2,12 +2,12 @@
 
 ## Snapshot metadata
 
-- Snapshot UTC: `2026-08-19T19:38:50Z`
+- Snapshot UTC: `2026-08-20T14:56:51Z`
 - Git branch: `main`
-- HEAD: `f2fc44f1b7cdf95606052974e96e38e523529693`
-- Working tree: dirty; uncommitted Step 5 source, CLI, tests, API export, and
-  method documentation are present. Generated outputs are ignored. Current
-  unrelated docs/theory are excluded and untouched by this snapshot update.
+- HEAD: `a8aa92df8f1f245b10b520508101c2faac816f96`
+- Working tree: dirty; intended uncommitted Step 5b source, CLI, tests, API
+  exports, and method documentation are present. Generated outputs are ignored
+  and are not committed.
 
 ## What the project currently is
 
@@ -18,13 +18,19 @@ The executable product is a local, research-only Python video gait pipeline:
 3. Step 3 quality-gates, bounded-interpolates, and smooths image-plane pose.
 4. Step 4 detects candidate initial contacts and candidate stride intervals.
 5. Step 4b resolves manual event/stride reviews and corrected boundaries.
-6. Step 5 computes a represented-segment mass-weighted 2D centroid proxy for
+6. Step 5a computes a represented-segment mass-weighted 2D centroid proxy for
    every frame and original plus normalized samples for reviewed strides.
+7. Standalone Step 5b qualifies Step 5a coverage, missingness, and stride sample
+   completeness and renders a diagnostic COM-proxy overlay.
 
-Step 5 software is implemented. Its output is an experimental image-plane proxy,
-not measured whole-body COM or a stability, fall-risk, diagnostic, validated, or
-clinical output. Toe-off, stance/swing/double-support measures and stability
-scores are not implemented.
+The distinctions are material: video pixels and decoder/container properties are
+observations; raw landmarks are pose-model estimates; Step 3 outputs are gated,
+optionally interpolated and smoothed pose trajectories; Step 5a is an unvalidated
+represented-segment COM proxy; and Step 5b is engineering/QC qualification of
+proxy completeness, not scientific measurement validation. None is measured
+whole-body COM, a stability or fall-risk result, a diagnosis, or a clinical
+output. Toe-off, stance/swing/double-support measures and stability scores are not
+implemented.
 
 ## Current capabilities
 
@@ -52,7 +58,7 @@ scores are not implemented.
   reviewed strides, and review-resolution metadata without altering automatic
   inputs.
 
-### Step 5: represented-segment COM proxy
+### Step 5a: represented-segment COM proxy
 
 - CLI: `.venv/bin/python scripts/estimate_com.py ARTIFACT_DIRECTORY
   --anthropometry-sex {male,female} [--minimum-mass-coverage VALUE
@@ -79,6 +85,30 @@ scores are not implemented.
   and aggregate QC flags/mass sums are nonexclusive.
 - Frame COM is computed independently of strides. Reviewed Step 4b strides only
   define the rows subsequently copied and normalized in `stride_com.csv`.
+
+### Step 5b: COM engineering/QC qualification
+
+- CLI: `.venv/bin/python scripts/qualify_com.py ARTIFACT_DIRECTORY
+  [--coverage-thresholds GRID] [--video PATH]`.
+- API: `gait_stability.qualify_com(artifact_directory,
+  ComQualificationConfig(...), video_path=...)`.
+- Reads and strictly cross-validates Step 5a outputs, their six upstream inputs,
+  and the provenance-matched source video. It computes coverage, segment and
+  direct-landmark missingness, left/right QC asymmetry, threshold sensitivity,
+  normalized availability, and per-stride engineering completeness without
+  changing or recomputing Step 5a coordinates.
+- `mass_coverage` remains the absolute unrenormalized fraction of published total
+  body-model mass represented in a frame. `supported_mass_coverage =
+  mass_coverage / theoretical_supported_mass_fraction` reports completeness
+  relative to the implementation's supported-segment ceiling. Neither quantity
+  measures positional accuracy, anatomical accuracy, confidence, or validity.
+- The default absolute `mass_coverage` sensitivity grid is
+  `0.80,0.82,0.84,0.86,0.88,0.90`. It is predeclared, unvalidated, and diagnostic;
+  Step 5b does not select or optimize a threshold or change Step 5a's inherited
+  primary gate.
+- Qualification categories and `policy_complete_at_threshold` describe
+  engineering sample completeness only. Capture suitability is not machine
+  established and requires independent human review.
 
 ## Quick start
 
@@ -110,6 +140,7 @@ Run the complete implemented workflow:
   path/to/assumption_responses.txt
 .venv/bin/python scripts/estimate_com.py outputs/walk \
   --anthropometry-sex male
+.venv/bin/python scripts/qualify_com.py outputs/walk
 ```
 
 The documented user environment remains `.venv/bin`. The verification runner
@@ -142,7 +173,7 @@ described below used the repository-ignored `venv/bin` environment.
   `reviewed_gait_events.csv`, `reviewed_strides.csv`, and
   `review_resolution_metadata.json`.
 
-### Estimate the Step 5 proxy
+### Estimate the Step 5a proxy
 
 ```bash
 .venv/bin/python scripts/estimate_com.py ARTIFACT_DIRECTORY \
@@ -158,9 +189,24 @@ described below used the repository-ignored `venv/bin` environment.
   all six input hashes rechecked, and the four-file set published transactionally
   with replacement backups and rollback.
 
+### Qualify the Step 5a proxy with Step 5b
+
+```bash
+.venv/bin/python scripts/qualify_com.py ARTIFACT_DIRECTORY \
+  [--coverage-thresholds 0.80,0.82,0.84,0.86,0.88,0.90] \
+  [--video PATH]
+```
+
+- Run Step 5a first. The optional threshold grid must contain finite, unique,
+  strictly increasing values in `[0,1]`. `--video` only relocates the inherited
+  source; its SHA-256 must match provenance.
+- Success prints the `com_qualification.json` path after the three outputs are
+  staged, all input/source hashes are rechecked, and publication completes with
+  replacement backups and rollback.
+
 ## Inputs
 
-Step 5 requires exactly these six canonical files in one artifact directory:
+Step 5a requires exactly these six canonical files in one artifact directory:
 
 1. `processed_landmarks.csv`
 2. `preprocessing_metadata.json`
@@ -169,7 +215,7 @@ Step 5 requires exactly these six canonical files in one artifact directory:
 5. `reviewed_strides.csv`
 6. `review_resolution_metadata.json`
 
-The pipeline snapshots all six SHA-256 hashes before parsing and rechecks all six
+Step 5a snapshots all six SHA-256 hashes before parsing and rechecks all six
 immediately before publication. It strictly validates exact CSV headers/order,
 canonical landmark and frame grids, booleans/numerics/statuses, strictly increasing
 canonical timestamps, frame/event/stride timestamp correspondence, schema and
@@ -182,15 +228,21 @@ automatic Step 4 events or strides. Step 3 provenance must link the same
 same preprocessing metadata, pose timestamp source, reviewed events, and reviewed
 strides.
 
-Capture inputs are monocular RGB. Step 5 uses normalized image-plane `x` (right)
+Step 5b additionally requires the four Step 5a outputs and the provenance-matched
+source video. It normally resolves the video from inherited Step 3 provenance;
+`--video` may provide a moved hash-identical file. It reads but does not modify
+the Step 5a or upstream artifacts.
+
+Capture inputs are monocular RGB. Steps 5a/5b use normalized image-plane `x` (right)
 and `y` (down), with no `z`, camera calibration, physical scale, 3D reconstruction,
-or physical units. It assumes weak-perspective/equivalent endpoint depth, static,
-low-distortion, near-sagittal capture with little out-of-plane motion; these
-assumptions are user-established and unverified by the software.
+or physical units. They require weak-perspective/equivalent endpoint depth, static,
+low-distortion, near-sagittal capture with little out-of-plane motion and adequate
+visibility of the full body, both arms, and both feet. These assumptions are
+user-established and unverified by the software.
 
 ## Outputs
 
-Step 5 transactionally publishes four files in `ARTIFACT_DIRECTORY`:
+Step 5a transactionally publishes four files in `ARTIFACT_DIRECTORY`:
 
 - `com_proxy.csv`: one row per nominal frame. Broad fields include frame/time/
   status, represented-segment centroid `com_x`/`com_y`, raw `mass_coverage`, model
@@ -207,6 +259,30 @@ Step 5 transactionally publishes four files in `ARTIFACT_DIRECTORY`:
   frame/stride counts, coverage/QC semantics, assumptions, limitations, runtime,
   warnings, and carried scientific unresolved items.
 
+Step 5b transactionally publishes three files in the same directory:
+
+- `com_qualification.json`: schema/versioned aggregate frame, segment, landmark,
+  asymmetry, stride, threshold-sensitivity, provenance, capture-review, validation,
+  and Step 6 readiness evidence. It records hashes for the other two outputs but
+  intentionally cannot self-record its own hash.
+- `com_stride_qc.csv`: one row per reviewed stride with frame/coverage summaries,
+  normalized availability, qualification category, policy-complete flag, component
+  booleans, and failure reasons at the inherited primary threshold.
+- `annotated_com.mp4`: provenance-matched source video with processed pose and the
+  finite represented-segment proxy colored by the inherited primary coverage gate,
+  plus explicit research-only/validation warnings. It is a diagnostic rendering,
+  not a new observation or measurement.
+
+Artifact interpretation:
+
+- The source video is the observed capture; decoded samples remain decoder outputs.
+- `raw_landmarks.csv` and overlays contain pose-model estimates, not observations.
+- `processed_landmarks.csv` contains QC-gated and potentially interpolated/smoothed
+  trajectories, not raw or validated measurements.
+- Step 5a COM files contain an experimental represented-segment image-plane proxy.
+- Step 5b files qualify engineering completeness and provenance of that proxy; a
+  passing category would not validate physical COM or a stability measurement.
+
 Normalized progression is fixed and timestamp-based:
 
 ```text
@@ -217,7 +293,7 @@ The grid includes exact `0` and `100` and has exactly the configured sample coun
 An exact timestamp copies that frame. Linear interpolation is permitted only
 between adjacent usable consecutive frames with identical represented segment
 sets. Invalid/unusable gaps and changed segment sets are never bridged; such rows
-use `method=none` and no centroid. Step 5 performs no landmark interpolation or
+use `method=none` and no centroid. Step 5a performs no landmark interpolation or
 extrapolation; Step 3 processing provenance is propagated.
 
 ## Configuration
@@ -227,8 +303,11 @@ extrapolation; Step 3 processing provenance is propagated.
 - `models/README.md`: local pose-model acquisition and provenance.
 - `docs/GAIT_EVENT_METHOD.md`: Step 4 event method and limits.
 - `docs/Step4b_review_resolution.md`: Step 4b contracts and semantics.
-- `docs/COM_PROXY_METHOD.md`: Step 5 formulas, endpoints, coefficients, QC,
+- `docs/COM_PROXY_METHOD.md`: Step 5a formulas, endpoints, coefficients, QC,
   normalization, coordinate assumptions, and validation limits.
+- `docs/COM_QUALIFICATION_METHOD.md`: Step 5b formulas, input/output contracts,
+  coverage semantics, threshold sensitivity, engineering criteria, capture review,
+  and readiness boundaries.
 
 ## Testing and verification
 
@@ -243,7 +322,7 @@ Normal verification from the repository root:
 git diff --check
 ```
 
-Focused Step 5 tests:
+Focused Step 5a tests:
 
 ```bash
 .venv/bin/python -m pytest \
@@ -251,34 +330,63 @@ Focused Step 5 tests:
   tests/test_estimate_com_cli.py
 ```
 
-Fresh full verification on `2026-08-19` used the repository-ignored `venv/bin`
+Focused Step 5b tests:
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_com_qualification.py \
+  tests/test_com_qualification_normalization.py \
+  tests/test_com_qualification_summaries.py \
+  tests/test_com_qualification_pipeline.py \
+  tests/test_qualify_com_cli.py
+```
+
+Prior fresh full verification for Step 5a on `2026-08-19` used the
+repository-ignored `venv/bin`
 runner while user documentation remains `.venv/bin`: Ruff format check passed for
 63 files; Ruff lint passed; mypy passed 17 source/script files; pytest passed all
 409 tests in `141.53s`; pip check passed; and Git diff check passed. Focused Step 5
 verification passed 197 tests in `109.45s`.
 
-### Aggregate ignored-artifact smoke test
+Fresh final verification on `2026-08-20` used the repository-ignored `venv/bin`
+runner while documented user commands remain `.venv/bin`: `ruff format --check .`
+passed with 73 files already formatted; `ruff check .` passed; mypy passed with no
+issues in 20 source files; pytest passed all 512 tests in `187.35s`; pip check
+reported no broken requirements; and `git diff --check` passed.
+
+### Aggregate ignored-artifact evidence
 
 The current aggregate smoke evidence is research-only, nonidentifying, and from
 ignored generated artifacts. It is not participant description, clinical evidence,
 or reference validation.
 
-- The user explicitly selected the male coefficient set; it was not inferred.
+- The male coefficient set was explicitly selected; it was not inferred from the
+  video, pose, metadata, names, or participant characteristics.
 - Inputs contained 31 reviewed event rows, 16 accepted events, and 14 reviewed
-  strides. Corrected shared boundaries were consumed at S0003 end/S0005 start
-  frame 86 and S0006 end/S0008 start frame 140.
+  strides; reviewed boundary corrections were consumed by Step 5a.
 - `com_proxy.csv` had 301 frame rows: 300 finite represented centroids, but zero
-  usable at the default `0.90` threshold. Maximum coverage was `0.8812` because
-  the head is unsupported and the left arm chain was unavailable; all 301 head
-  rows carried explicit unsupported QC.
+  usable at the primary `0.90` threshold. Maximum absolute `mass_coverage` was
+  `0.8812`; the left upper arm, forearm, and hand were persistently unavailable,
+  while the head is structurally unsupported rather than capture-missing.
 - All 14 strides had exactly 101 normalized rows. Across 1,414 normalized rows,
   65 were exact with finite centroids, zero were usable, and 1,349 had
   `method=none`.
 - All recorded hashes matched and `com_diagnostic.png` was readable (`1184x1797`
   RGB).
+- Step 5b reported `300/301` finite-COM frames, `0/301` primary-eligible frames,
+  and `0/14` policy-complete strides at the inherited primary `0.90` threshold.
+- At each sensitivity threshold from `0.80` through `0.88`, it reported `300/301`
+  eligible frames and `14/14` policy-complete strides. This sharp sensitivity is
+  not threshold validation, does not establish accuracy, and is not a reason to
+  tune or relax the primary threshold on this artifact.
+- Clean-capture human review is required but was not recorded. The inherited
+  capture declaration did not establish or machine-verify the required static,
+  near-sagittal, low-distortion, full-body view.
 
-This is a conservative QC outcome. It is no evidence that the software is invalid,
-and no evidence that the finite represented centroids are valid COM measurements.
+These are aggregate, nonidentifying engineering diagnostics from ignored generated
+artifacts. They are not participant description, threshold validation, clinical
+evidence, or reference validation. The finite represented centroids remain
+unvalidated proxy values.
 
 ## Known limitations
 
@@ -292,7 +400,7 @@ and no evidence that the finite represented centroids are valid COM measurements
 - No `z`, scale, depth, physical units, laboratory frame, camera calibration, or
   perspective correction is used. Weak-perspective, near-sagittal, static-camera,
   low-distortion assumptions are not machine-verified.
-- Step 3 smoothing/interpolation affects Step 5 positions. Step 5 does not bridge
+- Step 3 smoothing/interpolation affects Step 5a positions. Step 5a does not bridge
   invalid gaps, but normalization remains time-based and is not validated gait
   cycle percentage.
 - Reviewed events/strides are QC segmentation windows, not ground truth or
@@ -301,14 +409,18 @@ and no evidence that the finite represented centroids are valid COM measurements
 - No output is a stability score, fall-risk estimate, diagnosis, validation result,
   or clinical result. There are no force-plate/motion-capture comparisons,
   repeated-session studies, population validation, or clinical validation.
+- Step 5b coverage can characterize completeness but cannot detect positional bias,
+  establish camera/capture suitability, validate a threshold, or establish COM
+  accuracy. High supported-mass coverage only means completeness relative to the
+  supported model ceiling.
 - Transaction interruption or cleanup failure may leave staging/backup recovery
-  files; they must not be mixed with the published four-file set.
+  files; they must not be mixed with either published artifact set.
 
 ## Repository map
 
 ```text
-src/gait_stability/   Reusable Steps 1-5 APIs and typed contracts
-scripts/              Thin CLI entry points for Steps 1-5
+src/gait_stability/   Reusable Steps 1-5b APIs and typed contracts
+scripts/              Thin CLI entry points for Steps 1-5b
 tests/                Deterministic unit, CLI, and pipeline-boundary tests
 docs/                 Method documentation and this canonical snapshot
 models/README.md       Ignored local model acquisition/provenance instructions
@@ -320,8 +432,14 @@ data/                  Ignored local data; subject data must not be committed
 
 ## Next logical capabilities
 
-Step 5 software is implemented, but the current artifact is **NO-GO** for
-downstream feature extraction under default coverage because no frame or normalized
-sample is usable. The next work is improving capture/pose coverage and externally
-validating event timing and the represented centroid against appropriate reference
-systems. A stability score is not the next justified step.
+Step 6 engineering exploratory readiness is **CONDITIONAL**, pending independently
+reviewed clean-capture evidence that establishes full-body/limb visibility, suitable
+capture geometry, and sufficiently complete proxy trajectories under a documented,
+defensible QC policy. Sensitivity results from the current artifact do not satisfy
+that requirement.
+
+Step 6 scientific measurement readiness is **NO-GO / not established**, pending
+reference validation and calibrated/validated inputs including scale/geometry,
+ground or gravity alignment, gait events, and downstream measurements. The next
+logical work is independent clean-capture review and appropriate reference-system
+validation, not threshold tuning or a stability score.
