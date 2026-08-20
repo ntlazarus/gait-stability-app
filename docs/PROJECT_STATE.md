@@ -2,12 +2,12 @@
 
 ## Snapshot metadata
 
-- Snapshot UTC: `2026-08-20T14:56:51Z`
+- Snapshot UTC: `2026-08-20T17:50:23Z`
 - Git branch: `main`
-- HEAD: `a8aa92df8f1f245b10b520508101c2faac816f96`
-- Working tree: dirty; intended uncommitted Step 5b source, CLI, tests, API
-  exports, and method documentation are present. Generated outputs are ignored
-  and are not committed.
+- HEAD: `17d44d3086b2dce7ecb9686e2c5d743a4924659a`
+- Working tree: dirty; intended uncommitted Step 5c source, CLI, tests, API
+  exports, review template, and method documentation are present. Generated
+  outputs and review evidence are ignored and are not committed.
 
 ## What the project currently is
 
@@ -22,15 +22,18 @@ The executable product is a local, research-only Python video gait pipeline:
    every frame and original plus normalized samples for reviewed strides.
 7. Standalone Step 5b qualifies Step 5a coverage, missingness, and stride sample
    completeness and renders a diagnostic COM-proxy overlay.
+8. Optional standalone Step 5c applies a frozen clean-capture engineering policy
+   to current and prior Step 5b qualifications plus an external review.
 
 The distinctions are material: video pixels and decoder/container properties are
 observations; raw landmarks are pose-model estimates; Step 3 outputs are gated,
 optionally interpolated and smoothed pose trajectories; Step 5a is an unvalidated
-represented-segment COM proxy; and Step 5b is engineering/QC qualification of
-proxy completeness, not scientific measurement validation. None is measured
-whole-body COM, a stability or fall-risk result, a diagnosis, or a clinical
-output. Toe-off, stance/swing/double-support measures and stability scores are not
-implemented.
+represented-segment COM proxy; Step 5b is engineering/QC qualification of proxy
+completeness, not scientific measurement validation; and Step 5c is an
+engineering-readiness decision, not a new measurement or validation stage. None
+is measured whole-body COM, a stability or fall-risk result, a diagnosis, or a
+clinical output. Toe-off, stance/swing/double-support measures and stability
+scores are not implemented.
 
 ## Current capabilities
 
@@ -110,6 +113,41 @@ implemented.
   engineering sample completeness only. Capture suitability is not machine
   established and requires independent human review.
 
+### Step 5c: frozen clean-capture qualification
+
+- CLI: `.venv/bin/python scripts/qualify_capture.py ARTIFACT_DIRECTORY
+  CAPTURE_REVIEW_JSON --prior-qualification PRIOR_QUALIFICATION_JSON`.
+- API: `gait_stability.qualify_clean_capture(artifact_directory,
+  capture_review_path, prior_qualification_path)`, returning a
+  `CaptureQualificationArtifacts` contract. Review parsing, evidence extraction,
+  and the pure readiness evaluator are also exported from `gait_stability`.
+- It consumes the current canonical `com_qualification.json`, a distinct prior
+  Step 5b qualification, a strict review JSON based on
+  `docs/capture_review_template.json`, and all current/prior lineage referenced by
+  those qualifications. It publishes only `capture_qualification.json` in the
+  current artifact directory and does not rerun or modify Steps 1-5b.
+- The accepted policy is frozen to primary absolute coverage `0.90`, sensitivity
+  grid `0.80,0.82,0.84,0.86,0.88,0.90`, and fixed criteria. Engineering `GO`
+  requires finite-proxy fraction `>=0.95`; primary-eligible fraction `>=0.90`;
+  longest eligible interval `>=3.0` nominal seconds; no persistently missing
+  supported segment; at least 3 reviewed candidate windows; at least 3 and
+  `>=0.75` policy-complete windows with at least 1 per side; normalized availability
+  `>=0.90`; empirical maximum absolute coverage `>=0.90`; a comparable prior with
+  improvement `>=0.01`; independent-human whole-video review with every item
+  confirmed and direction consistent; and valid upstream provenance.
+- Hard `NO-GO` conditions are any persistent supported segment; primary-eligible
+  fraction `<0.50`; fewer than 2 policy-complete windows; normalized availability
+  `<0.50`; missing, nonhuman, incomplete, or non-independent whole-video review;
+  any `not_confirmed`/`not_applicable` review item; direction mismatch; or
+  provenance mismatch. Other unmet GO criteria are `CONDITIONAL`. Step 5c does not
+  search, select, optimize, or relax thresholds.
+- Missing review publishes an evaluated, pending-review `NO-GO`. A present
+  nonhuman, incomplete, or non-independent whole-video review is also a hard
+  `NO-GO`; malformed, stale-hash, or direction-mismatched review JSON is rejected.
+- Engineering readiness applies only to exploratory pipeline work. Scientific
+  readiness is always separately `NO-GO` with status `not_established` because no
+  reference-system validation is performed.
+
 ## Quick start
 
 Python 3.11 or newer is supported. From the repository root:
@@ -127,7 +165,8 @@ MediaPipe declares GUI OpenCV; the local provider retains the headless OpenCV
 implementation. Obtain the full Pose Landmarker `.task` manually as documented
 in `models/README.md`; the application does not download models.
 
-Run the complete implemented workflow:
+Run the primary Steps 1-5b workflow. Step 5c is not required to run any of these
+commands:
 
 ```bash
 .venv/bin/python scripts/inspect_video.py path/to/walk.mp4 --output-root outputs
@@ -141,6 +180,15 @@ Run the complete implemented workflow:
 .venv/bin/python scripts/estimate_com.py outputs/walk \
   --anthropometry-sex male
 .venv/bin/python scripts/qualify_com.py outputs/walk
+```
+
+After Step 5b, optionally run Step 5c as a separate qualification step. It
+requires a completed review JSON and a distinct prior Step 5b qualification:
+
+```bash
+.venv/bin/python scripts/qualify_capture.py outputs/walk \
+  path/to/capture_review.json \
+  --prior-qualification path/to/prior/com_qualification.json
 ```
 
 The documented user environment remains `.venv/bin`. The verification runner
@@ -204,6 +252,25 @@ described below used the repository-ignored `venv/bin` environment.
   staged, all input/source hashes are rechecked, and publication completes with
   replacement backups and rollback.
 
+### Apply the frozen Step 5c policy
+
+```bash
+.venv/bin/python scripts/qualify_capture.py ARTIFACT_DIRECTORY \
+  CAPTURE_REVIEW_JSON \
+  --prior-qualification PRIOR_QUALIFICATION_JSON
+```
+
+- Run Step 5b separately for the current and prior captures first. The current
+  qualification must be the canonical `ARTIFACT_DIRECTORY/com_qualification.json`;
+  the prior qualification must be distinct.
+- Start from `docs/capture_review_template.json`. The template is deliberately
+  non-qualifying: it uses placeholder hashes, an automated-assistant reviewer,
+  false whole-video flags, and `uncertain` items. A qualifying review requires an
+  independent human to inspect the whole source and annotated COM videos and
+  replace all placeholders with exact, review-specific declarations and hashes.
+- Success prints `ARTIFACT_DIRECTORY/capture_qualification.json`. A decision of
+  `NO-GO` is a successfully evaluated result, not a CLI execution failure.
+
 ## Inputs
 
 Step 5a requires exactly these six canonical files in one artifact directory:
@@ -232,6 +299,17 @@ Step 5b additionally requires the four Step 5a outputs and the provenance-matche
 source video. It normally resolves the video from inherited Step 3 provenance;
 `--video` may provide a moved hash-identical file. It reads but does not modify
 the Step 5a or upstream artifacts.
+
+Step 5c requires the current and prior Step 5b `com_qualification.json` records;
+each record's referenced source video, `annotated_com.mp4`, `com_stride_qc.csv`,
+`preprocessing_metadata.json`, and `review_resolution_metadata.json`; and the
+current external review JSON. It strictly validates Step 5a/5b schema and
+algorithm versions, sex and coefficient provenance, pose-model hash,
+preprocessing configuration, capture assumptions, Step 4b lineage/direction,
+primary gate, frozen sensitivity grid, referenced file hashes, and review hashes.
+All consumed hashes, including both source videos, are snapshotted and rechecked
+immediately before publication. A moved or changed lineage is not silently
+accepted.
 
 Capture inputs are monocular RGB. Steps 5a/5b use normalized image-plane `x` (right)
 and `y` (down), with no `z`, camera calibration, physical scale, 3D reconstruction,
@@ -273,6 +351,14 @@ Step 5b transactionally publishes three files in the same directory:
   plus explicit research-only/validation warnings. It is a diagnostic rendering,
   not a new observation or measurement.
 
+Step 5c publishes exactly one file in the current artifact directory:
+
+- `capture_qualification.json`: schema/versioned current and prior evidence,
+  parsed review or missing-review state, strict lineage and hash provenance,
+  comparability checks, frozen policy and criterion results, blockers/warnings,
+  engineering readiness, and separate scientific readiness. Its output self-hash
+  is null because a file cannot embed its own stable digest.
+
 Artifact interpretation:
 
 - The source video is the observed capture; decoded samples remain decoder outputs.
@@ -282,6 +368,9 @@ Artifact interpretation:
 - Step 5a COM files contain an experimental represented-segment image-plane proxy.
 - Step 5b files qualify engineering completeness and provenance of that proxy; a
   passing category would not validate physical COM or a stability measurement.
+- Step 5c applies a frozen engineering policy to those records and external review;
+  even engineering `GO` would permit exploratory work only and would not establish
+  scientific or clinical validity.
 
 Normalized progression is fixed and timestamp-based:
 
@@ -308,6 +397,11 @@ extrapolation; Step 3 processing provenance is propagated.
 - `docs/COM_QUALIFICATION_METHOD.md`: Step 5b formulas, input/output contracts,
   coverage semantics, threshold sensitivity, engineering criteria, capture review,
   and readiness boundaries.
+- `docs/CLEAN_CAPTURE_QUALIFICATION_METHOD.md`: Step 5c CLI/API, strict review and
+  provenance contracts, frozen criteria, current/prior comparability, output
+  states, and engineering-versus-scientific readiness boundaries.
+- `docs/capture_review_template.json`: deliberately non-qualifying strict external
+  review input template.
 
 ## Testing and verification
 
@@ -341,6 +435,14 @@ Focused Step 5b tests:
   tests/test_qualify_com_cli.py
 ```
 
+Focused Step 5c tests:
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_capture_qualification.py \
+  tests/test_capture_qualification_pipeline.py
+```
+
 Prior fresh full verification for Step 5a on `2026-08-19` used the
 repository-ignored `venv/bin`
 runner while user documentation remains `.venv/bin`: Ruff format check passed for
@@ -348,45 +450,62 @@ runner while user documentation remains `.venv/bin`: Ruff format check passed fo
 409 tests in `141.53s`; pip check passed; and Git diff check passed. Focused Step 5
 verification passed 197 tests in `109.45s`.
 
-Fresh final verification on `2026-08-20` used the repository-ignored `venv/bin`
-runner while documented user commands remain `.venv/bin`: `ruff format --check .`
-passed with 73 files already formatted; `ruff check .` passed; mypy passed with no
-issues in 20 source files; pytest passed all 512 tests in `187.35s`; pip check
-reported no broken requirements; and `git diff --check` passed.
+Fresh full Step 5c verification on `2026-08-20` used the repository-ignored
+`venv/bin` runner while documented user commands remain `.venv/bin`:
+`venv/bin/ruff format --check .` passed with 78 files already formatted;
+`venv/bin/ruff check .` passed; `venv/bin/python -m mypy src scripts` passed with
+no issues in 22 source files; `venv/bin/python -m pytest` passed all 566 tests in
+`215.11s`; `venv/bin/python -m pip check` reported no broken requirements; and
+`git diff --check` passed. The exact focused Step 5c command above passed all 54
+tests in `34.23s` using the same runner.
 
 ### Aggregate ignored-artifact evidence
 
-The current aggregate smoke evidence is research-only, nonidentifying, and from
-ignored generated artifacts. It is not participant description, clinical evidence,
-or reference validation.
+The current aggregate evidence is research-only, nonidentifying, and from ignored
+generated artifacts. It is not participant description, clinical evidence,
+threshold validation, or reference validation.
 
-- The male coefficient set was explicitly selected; it was not inferred from the
-  video, pose, metadata, names, or participant characteristics.
-- Inputs contained 31 reviewed event rows, 16 accepted events, and 14 reviewed
-  strides; reviewed boundary corrections were consumed by Step 5a.
-- `com_proxy.csv` had 301 frame rows: 300 finite represented centroids, but zero
-  usable at the primary `0.90` threshold. Maximum absolute `mass_coverage` was
-  `0.8812`; the left upper arm, forearm, and hand were persistently unavailable,
-  while the head is structurally unsupported rather than capture-missing.
-- All 14 strides had exactly 101 normalized rows. Across 1,414 normalized rows,
-  65 were exact with finite centroids, zero were usable, and 1,349 had
-  `method=none`.
-- All recorded hashes matched and `com_diagnostic.png` was readable (`1184x1797`
-  RGB).
-- Step 5b reported `300/301` finite-COM frames, `0/301` primary-eligible frames,
-  and `0/14` policy-complete strides at the inherited primary `0.90` threshold.
-- At each sensitivity threshold from `0.80` through `0.88`, it reported `300/301`
-  eligible frames and `14/14` policy-complete strides. This sharp sensitivity is
-  not threshold validation, does not establish accuracy, and is not a reason to
-  tune or relax the primary threshold on this artifact.
-- Clean-capture human review is required but was not recorded. The inherited
-  capture declaration did not establish or machine-verify the required static,
-  near-sagittal, low-distortion, full-body view.
+- The male coefficient set was explicitly selected by the user for both records;
+  it was never inferred from video, pose, metadata, names, or participant
+  characteristics. The theoretical supported mass fraction is `0.9306`.
+- The current candidate has `301/301` finite proxy frames. Absolute
+  `mass_coverage` is constant, with maximum `0.8812`; `0/301` frames are eligible
+  at the frozen primary `0.90` threshold and the longest passing interval is `0`
+  seconds.
+- The current candidate has persistent pose-derived segment absence for exactly
+  `left_upper_arm`, `left_forearm`, and `left_hand`, with no transient
+  supported-segment loss. No acquisition cause is assigned to this evidence.
+- The 13 reviewed temporal windows remain candidate strides, not validated gait
+  cycles. At `0.90`, `0/13` are policy-complete and `0/1313` normalized samples
+  are available. At every descriptive threshold from `0.80` through `0.88`,
+  `301/301` frames are eligible, the contiguous interval is `10` nominal seconds,
+  `13/13` windows are policy-complete, and `1313/1313` normalized samples are
+  available.
+- The prior Step 5b record has maximum absolute coverage `0.8812`, `0/301`
+  eligible frames at `0.90`, the same persistent named left-arm segments, and
+  `0/14` policy-complete candidate windows at `0.90`.
+- Current/prior strict Step 5c comparability is false because preprocessing
+  configurations differ. The arithmetic maximum-coverage delta is `0.0`, but its
+  status is `not_interpretable_for_go`; the side-by-side values are descriptive,
+  not a controlled comparison and not evidence of an acquisition effect.
+- No Step 5a/5b algorithm, de Leva coefficient, segment mapping, threshold, or
+  event boundary was tuned for passage. The sensitivity grid remains descriptive
+  and is not justification to relax the frozen `0.90` policy.
+- External independent whole-video human review remains pending because the user
+  chose to provide a review template. An AI-assisted sampled-frame precheck found
+  the full body and orange below-threshold proxy visible in sampled frames and no
+  gross whole-pose reset in those samples. It did not establish whole-video
+  continuity, jumps, anatomical left/right swaps, supported-segment disappearance,
+  event-boundary behavior, camera assumptions, or whether the proxy visually
+  follows the body; none of those items is human-confirmed.
+- Quantitative hard blockers independently make current Step 6 engineering
+  readiness `NO-GO` under the frozen policy: persistent supported segments,
+  primary-eligible fraction below the `0.50` hard limit, fewer than 2
+  policy-complete windows, and normalized availability below `0.50`. The pending
+  nonhuman/incomplete review is an additional hard blocker. Scientific readiness
+  is separately `NO-GO` / `not_established`.
 
-These are aggregate, nonidentifying engineering diagnostics from ignored generated
-artifacts. They are not participant description, threshold validation, clinical
-evidence, or reference validation. The finite represented centroids remain
-unvalidated proxy values.
+The finite represented centroids remain unvalidated image-plane proxy values.
 
 ## Known limitations
 
@@ -413,16 +532,20 @@ unvalidated proxy values.
   establish camera/capture suitability, validate a threshold, or establish COM
   accuracy. High supported-mass coverage only means completeness relative to the
   supported model ceiling.
+- Step 5c cannot authenticate reviewer identity, inspect pixels, validate anatomy,
+  establish repeatability, make a noncomparable prior controlled, or establish
+  scientific readiness. Missing review can still produce an auditable evaluated
+  `NO-GO`; malformed or hash-mismatched review input is rejected.
 - Transaction interruption or cleanup failure may leave staging/backup recovery
   files; they must not be mixed with either published artifact set.
 
 ## Repository map
 
 ```text
-src/gait_stability/   Reusable Steps 1-5b APIs and typed contracts
-scripts/              Thin CLI entry points for Steps 1-5b
+src/gait_stability/   Reusable Steps 1-5c APIs and typed contracts
+scripts/              Thin CLI entry points for Steps 1-5c
 tests/                Deterministic unit, CLI, and pipeline-boundary tests
-docs/                 Method documentation and this canonical snapshot
+docs/                 Method docs, Step 5c review template, and this snapshot
 models/README.md       Ignored local model acquisition/provenance instructions
 compat/                Headless OpenCV compatibility distribution
 outputs/               Ignored generated research artifacts
@@ -432,14 +555,14 @@ data/                  Ignored local data; subject data must not be committed
 
 ## Next logical capabilities
 
-Step 6 engineering exploratory readiness is **CONDITIONAL**, pending independently
-reviewed clean-capture evidence that establishes full-body/limb visibility, suitable
-capture geometry, and sufficiently complete proxy trajectories under a documented,
-defensible QC policy. Sensitivity results from the current artifact do not satisfy
-that requirement.
+For the current ignored-artifact evidence, Step 6 engineering exploratory
+readiness is **NO-GO** under the frozen Step 5c policy. Independent whole-video
+human review remains required, but quantitative hard blockers already establish
+the engineering result without that review.
 
-Step 6 scientific measurement readiness is **NO-GO / not established**, pending
-reference validation and calibrated/validated inputs including scale/geometry,
-ground or gravity alignment, gait events, and downstream measurements. The next
-logical work is independent clean-capture review and appropriate reference-system
+Step 6 scientific measurement readiness is separately **NO-GO / not established**,
+pending reference validation and calibrated/validated inputs including
+scale/geometry, ground or gravity alignment, gait events, and downstream
+measurements. The next logical capabilities are independent whole-video review,
+controlled comparable capture evidence, and appropriate reference-system
 validation, not threshold tuning or a stability score.

@@ -46,6 +46,10 @@ It publishes three files into the same artifact directory:
 `com_qualification.json`, `com_stride_qc.csv`, and `annotated_com.mp4`. The CLI
 prints the path to `com_qualification.json` on success.
 
+Step 5c applies the frozen clean-capture engineering policy to current and prior
+Step 5b evidence plus an external review. See
+[`CLEAN_CAPTURE_QUALIFICATION_METHOD.md`](CLEAN_CAPTURE_QUALIFICATION_METHOD.md).
+
 ## Coverage quantities
 
 ### Total-body mass coverage

@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "review_id": "REPLACE_WITH_UNIQUE_REVIEW_ID",
+  "reviewed_at_utc": "1970-01-01T00:00:00Z",
+  "reviewer": {
+    "reviewer_type": "automated_assistant",
+    "identifier": "REPLACE_WITH_INDEPENDENT_HUMAN_REVIEWER_IDENTIFIER",
+    "role": "template placeholder; replace with independent human reviewer role",
+    "independence": "uncertain"
+  },
+  "whole_source_video_inspected": false,
+  "whole_annotated_com_video_inspected": false,
+  "capture_protocol": "REPLACE_WITH_THE_CAPTURE_PROTOCOL_ACTUALLY_REVIEWED",
+  "artifact_hashes": {
+    "source_video": "0000000000000000000000000000000000000000000000000000000000000000",
+    "annotated_com.mp4": "0000000000000000000000000000000000000000000000000000000000000000",
+    "com_qualification.json": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "walking_direction": "image_right",
+  "declared_direction_matches_inherited_step4": false,
+  "orientation_notes": "TEMPLATE ONLY: an independent human must replace all placeholders and record the observed orientation.",
+  "capture_items": {
+    "full_body_in_frame": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "head_to_feet_framing_adequate": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "both_arms_visible": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "both_feet_visible": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "approximately_sagittal_view": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "fixed_camera_no_pan_tilt_zoom_or_reframing": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "camera_motion_absent_or_negligible": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "minimal_subject_out_of_plane_motion_and_no_turns": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "no_obvious_severe_lens_or_perspective_distortion": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "major_self_occlusion_limited": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "lighting_adequate": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "subject_background_separation_adequate": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "several_complete_candidate_gait_cycles_present": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "anatomical_left_right_established": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "walking_direction_established": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "bilateral_com_landmarks_trackable": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "bilateral_event_landmarks_trackable": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    }
+  },
+  "annotated_com_items": {
+    "trajectory_continuity_adequate": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "no_visibly_nonphysiological_tracking_jumps": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "no_identity_loss_or_whole_pose_reset": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "no_visible_anatomical_left_right_label_swap": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "no_unexplained_sustained_supported_segment_dropout": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "no_obvious_centroid_relocation_with_limb_disappearance": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    },
+    "no_visible_tracking_discontinuity_within_0_2_seconds_of_reviewed_event_boundaries": {
+      "status": "uncertain",
+      "note": "Template placeholder; review tracking continuity only within plus or minus 0.2 nominal seconds of each boundary."
+    },
+    "proxy_grossly_follows_tracked_body": {
+      "status": "uncertain",
+      "note": "Template placeholder; independent human review required."
+    }
+  }
+}
